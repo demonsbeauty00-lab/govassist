@@ -1,0 +1,451 @@
+// ---------------------------------------------------------------------------
+// ⚠️ DEMO DATA — NOT PRODUCTION DATA
+//
+// Everything in this file is illustrative sample content used only to build
+// and preview the UI. It is deliberately fictional/rounded (e.g. "Closes in
+// 4 days" rather than a real date tied to a real notification) so it is never
+// mistaken for a live, verified exam record.
+//
+// This exam catalog is what the "admin/content architecture" (see
+// scripts/seed-exams.example.ts) eventually replaces: real, officially
+// sourced rows in the exam_cycles table, added/updated by an editor via that
+// pipeline rather than hardcoded here. Until then, DEMO_MODE (see below)
+// drives a visible "Sample data" indicator wherever this file is used — see
+// components/ui/DemoBanner.tsx.
+//
+// Phase 4 note: each exam's `rules` field is real, structured input to the
+// eligibility engine (lib/eligibility/engine.ts) — only the exam CATALOG
+// here is fictional demo content. The eligibility RESULT shown in the app is
+// always computed live against the real signed-in user's profile.
+// ---------------------------------------------------------------------------
+
+import { AppNotification, ExamCycle } from "./types";
+
+export const DEMO_MODE = true;
+
+// Standard category age relaxation used across most of these demo cycles —
+// defined once here for readability, but each exam's `rules` object still
+// carries its own copy: nothing in the engine reads this shared constant,
+// so changing one exam's relaxation never silently changes another's.
+const STANDARD_AGE_RELAXATION = { OBC: 3, SC: 5, ST: 5, EWS: 0 };
+
+export const demoExamCycles: ExamCycle[] = [
+  {
+    id: "ssc-cgl-2026",
+    examName: "Combined Graduate Level Examination",
+    shortName: "SSC CGL 2026",
+    organization: "Staff Selection Commission",
+    category: "SSC",
+    cycleLabel: "2026",
+    post: "Assistant Section Officer, Inspector, and other Group B/C posts",
+    qualificationSummary: "Bachelor's degree in any discipline",
+    ageRange: "18–32 years (varies by post)",
+    vacancies: 3200,
+    officialNotificationUrl: "https://ssc.nic.in",
+    officialApplicationUrl: "https://ssc.nic.in/apply",
+    officialWebsite: "https://ssc.nic.in",
+    notificationDate: "2026-06-10",
+    lastVerifiedDate: "2026-08-20",
+    applicationWindow: {
+      startDate: "2026-06-10",
+      endDate: "2026-07-10",
+      status: "closed",
+    },
+    importantDates: [
+      { label: "Notification", date: "2026-06-10" },
+      { label: "Application closes", date: "2026-07-10" },
+      { label: "Tier I exam", date: "2026-11-04", isTentative: true },
+    ],
+    examPattern: [
+      {
+        tierLabel: "Tier I",
+        sections: ["General Intelligence", "General Awareness", "Quantitative Aptitude", "English"],
+        duration: "60 minutes",
+        negativeMarking: "-0.5 per wrong answer",
+      },
+    ],
+    syllabusSummary: "General intelligence, quantitative aptitude, English, and general awareness across all tiers.",
+    markingSchemeSummary: "2 marks per correct answer, -0.5 for an incorrect answer (Tier I); scheme varies by tier.",
+    rules: {
+      ageMin: 18,
+      ageMax: 32,
+      ageCutoffDate: "2026-08-01",
+      ageRelaxationByCategory: STANDARD_AGE_RELAXATION,
+      requiredDegree: "Bachelor's Degree",
+      requiredSubject: null,
+      minPercentage: null,
+      eligibleCategories: null,
+      domicileRequired: false,
+      examState: null,
+      genderRequirement: null,
+      physicalRequirements: null,
+      experienceRequirements: null,
+      otherConditions: null,
+      notificationDate: "2026-06-10",
+    },
+  },
+  {
+    id: "rrb-ntpc-2026",
+    examName: "Non-Technical Popular Categories",
+    shortName: "RRB NTPC 2026",
+    organization: "Railway Recruitment Board",
+    category: "Railways",
+    cycleLabel: "2026",
+    post: "Junior Clerk cum Typist, Accounts Clerk, and other NTPC posts",
+    qualificationSummary: "Graduate / 12th pass depending on post",
+    ageRange: "18–33 years",
+    vacancies: 8113,
+    officialNotificationUrl: "https://indianrailways.gov.in",
+    officialApplicationUrl: "https://indianrailways.gov.in/apply",
+    officialWebsite: "https://indianrailways.gov.in",
+    notificationDate: "2026-05-02",
+    lastVerifiedDate: "2026-08-18",
+    applicationWindow: {
+      startDate: "2026-05-02",
+      endDate: "2026-06-01",
+      status: "closed",
+    },
+    importantDates: [
+      { label: "Notification", date: "2026-05-02" },
+      { label: "CBT 1", date: "2026-10-12", isTentative: true },
+    ],
+    examPattern: [
+      {
+        tierLabel: "CBT 1",
+        sections: ["Mathematics", "General Intelligence & Reasoning", "General Awareness"],
+        duration: "90 minutes",
+        negativeMarking: "-1/3 per wrong answer",
+      },
+    ],
+    syllabusSummary: "Mathematics, general intelligence and reasoning, and general awareness.",
+    markingSchemeSummary: "1 mark per correct answer, -1/3 for an incorrect answer (CBT 1).",
+    rules: {
+      ageMin: 18,
+      ageMax: 33,
+      ageCutoffDate: "2026-07-01",
+      ageRelaxationByCategory: STANDARD_AGE_RELAXATION,
+      requiredDegree: "Bachelor's Degree",
+      requiredSubject: null,
+      minPercentage: null,
+      eligibleCategories: null,
+      domicileRequired: false,
+      examState: null,
+      genderRequirement: null,
+      physicalRequirements: null,
+      experienceRequirements: null,
+      otherConditions: null,
+      notificationDate: "2026-05-02",
+    },
+  },
+  {
+    id: "ibps-po-2026",
+    examName: "Probationary Officer",
+    shortName: "IBPS PO 2026",
+    organization: "Institute of Banking Personnel Selection",
+    category: "Banking",
+    cycleLabel: "2026",
+    post: "Probationary Officer / Management Trainee",
+    qualificationSummary: "Bachelor's degree in any discipline",
+    ageRange: "20–30 years",
+    vacancies: 2500,
+    officialNotificationUrl: "https://ibps.in",
+    officialApplicationUrl: "https://ibps.in/apply",
+    officialWebsite: "https://ibps.in",
+    notificationDate: "2026-08-01",
+    lastVerifiedDate: "2026-09-05",
+    applicationWindow: {
+      startDate: "2026-08-05",
+      endDate: "2026-09-20",
+      status: "closing_soon",
+    },
+    admitCardDate: "2026-10-15",
+    importantDates: [
+      { label: "Notification", date: "2026-08-01" },
+      { label: "Application closes", date: "2026-09-20" },
+      { label: "Prelims", date: "2026-10-25", isTentative: true },
+    ],
+    examPattern: [
+      {
+        tierLabel: "Prelims",
+        sections: ["English Language", "Quantitative Aptitude", "Reasoning Ability"],
+        duration: "60 minutes",
+        negativeMarking: "-0.25 per wrong answer",
+      },
+      {
+        tierLabel: "Mains",
+        sections: ["Reasoning & Computer Aptitude", "General/Economy/Banking Awareness", "English", "Data Analysis"],
+        duration: "180 minutes",
+        negativeMarking: "-0.25 per wrong answer",
+      },
+    ],
+    syllabusSummary:
+      "English language, quantitative aptitude, and reasoning ability (Prelims); adds computer aptitude, banking awareness, and data analysis (Mains).",
+    markingSchemeSummary: "1 mark per correct answer, -0.25 for an incorrect answer, across both tiers.",
+    rules: {
+      ageMin: 20,
+      ageMax: 30,
+      ageCutoffDate: "2026-08-01",
+      ageRelaxationByCategory: STANDARD_AGE_RELAXATION,
+      requiredDegree: "Bachelor's Degree",
+      requiredSubject: null,
+      minPercentage: null,
+      eligibleCategories: null,
+      domicileRequired: false,
+      examState: null,
+      genderRequirement: null,
+      physicalRequirements: null,
+      experienceRequirements: null,
+      otherConditions: null,
+      notificationDate: "2026-08-01",
+    },
+  },
+  {
+    id: "uppsc-pcs-2026",
+    examName: "Combined State / Upper Subordinate Services Examination",
+    shortName: "UPPSC PCS 2026",
+    organization: "Uttar Pradesh Public Service Commission",
+    category: "State Government",
+    state: "Uttar Pradesh",
+    cycleLabel: "2026",
+    post: "Deputy Collector, DSP, and other state civil service posts",
+    qualificationSummary: "Bachelor's degree from a recognised university",
+    ageRange: "21–40 years (state relaxation rules apply)",
+    vacancies: 500,
+    officialNotificationUrl: "https://uppsc.up.nic.in",
+    officialApplicationUrl: "https://uppsc.up.nic.in/apply",
+    officialWebsite: "https://uppsc.up.nic.in",
+    notificationDate: "2026-06-25",
+    lastVerifiedDate: "2026-08-03",
+    applicationWindow: {
+      startDate: "2026-06-25",
+      endDate: "2026-08-03",
+      status: "closed",
+    },
+    importantDates: [
+      { label: "Notification", date: "2026-06-25" },
+      { label: "Application closes", date: "2026-08-03" },
+      { label: "Prelims exam", date: "2026-12-06", isTentative: true },
+    ],
+    examPattern: [
+      {
+        tierLabel: "Preliminary",
+        sections: ["General Studies I", "General Studies II (CSAT)"],
+        duration: "2 hours per paper",
+        negativeMarking: "-0.33 per wrong answer",
+      },
+    ],
+    syllabusSummary: "General Studies I (history, geography, polity, economy) and General Studies II / CSAT (aptitude, reasoning).",
+    markingSchemeSummary: "2 marks per correct answer, -0.66 for an incorrect answer (Preliminary).",
+    rules: {
+      ageMin: 21,
+      ageMax: 40,
+      ageCutoffDate: "2026-07-01",
+      ageRelaxationByCategory: STANDARD_AGE_RELAXATION,
+      requiredDegree: "Bachelor's Degree",
+      requiredSubject: null,
+      minPercentage: null,
+      eligibleCategories: null,
+      domicileRequired: true,
+      examState: "Uttar Pradesh",
+      genderRequirement: null,
+      physicalRequirements: null,
+      experienceRequirements: null,
+      otherConditions: null,
+      notificationDate: "2026-06-25",
+    },
+  },
+  {
+    id: "bpsc-72nd-cce-2026",
+    examName: "72nd Combined Competitive Examination",
+    shortName: "BPSC 72nd CCE",
+    organization: "Bihar Public Service Commission",
+    category: "State Government",
+    state: "Bihar",
+    cycleLabel: "2026",
+    post: "Deputy Collector, DSP, Block Development Officer, and other state civil service posts",
+    qualificationSummary: "Bachelor's degree or equivalent",
+    ageRange: "20–37 years (category relaxation applies)",
+    vacancies: 1186,
+    officialNotificationUrl: "https://bpsc.bihar.gov.in",
+    officialApplicationUrl: "https://bpsc.bihar.gov.in/apply",
+    officialWebsite: "https://bpsc.bihar.gov.in",
+    notificationDate: "2026-05-05",
+    lastVerifiedDate: "2026-09-04",
+    applicationWindow: {
+      startDate: "2026-05-07",
+      endDate: "2026-05-31",
+      status: "closed",
+    },
+    importantDates: [
+      { label: "Notification", date: "2026-05-05" },
+      { label: "Preliminary exam", date: "2026-10-25", isTentative: true },
+    ],
+    examPattern: [
+      {
+        tierLabel: "Preliminary",
+        sections: ["General Studies"],
+        duration: "2 hours",
+        negativeMarking: "No negative marking",
+      },
+    ],
+    syllabusSummary: "General Studies covering history, geography, polity, economy, and current affairs.",
+    markingSchemeSummary: "No negative marking (Preliminary).",
+    rules: {
+      ageMin: 20,
+      ageMax: 37,
+      ageCutoffDate: "2026-08-01",
+      ageRelaxationByCategory: STANDARD_AGE_RELAXATION,
+      requiredDegree: "Bachelor's Degree",
+      requiredSubject: null,
+      minPercentage: null,
+      eligibleCategories: null,
+      domicileRequired: true,
+      examState: "Bihar",
+      genderRequirement: null,
+      physicalRequirements: null,
+      experienceRequirements: null,
+      otherConditions: "Several posts in this cycle are reserved for Bihar domicile holders only — reservation varies by post.",
+      notificationDate: "2026-05-05",
+    },
+  },
+  {
+    id: "ssc-gd-2026",
+    examName: "General Duty Constable",
+    shortName: "SSC GD Constable 2026",
+    organization: "Staff Selection Commission",
+    category: "Police",
+    cycleLabel: "2026",
+    post: "Constable (General Duty)",
+    qualificationSummary: "Matriculation (10th pass)",
+    ageRange: "18–23 years",
+    vacancies: 45000,
+    officialNotificationUrl: "https://ssc.nic.in",
+    officialApplicationUrl: "https://ssc.nic.in/apply",
+    officialWebsite: "https://ssc.nic.in",
+    notificationDate: "2026-08-25",
+    lastVerifiedDate: "2026-09-08",
+    applicationWindow: {
+      startDate: "2026-08-25",
+      endDate: "2026-09-24",
+      status: "open",
+    },
+    importantDates: [
+      { label: "Notification", date: "2026-08-25" },
+      { label: "Application closes", date: "2026-09-24" },
+    ],
+    examPattern: [
+      {
+        tierLabel: "Computer Based Exam",
+        sections: ["General Intelligence", "General Knowledge", "Elementary Mathematics", "English/Hindi"],
+        duration: "60 minutes",
+        negativeMarking: "-0.25 per wrong answer",
+      },
+    ],
+    syllabusSummary: "General intelligence and reasoning, general knowledge and awareness, elementary mathematics, and English/Hindi.",
+    markingSchemeSummary: "1 mark per correct answer, -0.25 for an incorrect answer.",
+    rules: {
+      ageMin: 18,
+      ageMax: 23,
+      ageCutoffDate: "2026-08-01",
+      ageRelaxationByCategory: STANDARD_AGE_RELAXATION,
+      requiredDegree: "10th Pass",
+      requiredSubject: null,
+      minPercentage: null,
+      eligibleCategories: null,
+      domicileRequired: false,
+      examState: null,
+      genderRequirement: null,
+      physicalRequirements: "Height, chest (where applicable), and endurance/physical efficiency standards apply and vary by category, gender, and region.",
+      experienceRequirements: null,
+      otherConditions: null,
+      notificationDate: "2026-08-25",
+    },
+  },
+];
+
+export const demoCompletedExamCycle: ExamCycle = {
+  id: "ssc-chsl-2025",
+  examName: "Combined Higher Secondary Level Examination",
+  shortName: "SSC CHSL 2025",
+  organization: "Staff Selection Commission",
+  category: "SSC",
+  cycleLabel: "2025",
+  post: "Lower Divisional Clerk, Postal Assistant, and other Group C posts",
+  qualificationSummary: "12th pass",
+  ageRange: "18–27 years",
+  vacancies: 3600,
+  officialNotificationUrl: "https://ssc.nic.in",
+  officialApplicationUrl: "https://ssc.nic.in/apply",
+  officialWebsite: "https://ssc.nic.in",
+  notificationDate: "2025-04-10",
+  lastVerifiedDate: "2026-02-01",
+  applicationWindow: { startDate: "2025-04-10", endDate: "2025-05-10", status: "closed" },
+  admitCardDate: "2025-08-01",
+  answerKeyDate: "2025-09-15",
+  resultDate: "2026-01-20",
+  importantDates: [
+    { label: "Notification", date: "2025-04-10" },
+    { label: "Tier I exam", date: "2025-08-12" },
+    { label: "Result", date: "2026-01-20" },
+  ],
+  examPattern: [
+    {
+      tierLabel: "Tier I",
+      sections: ["General Intelligence", "General Awareness", "Quantitative Aptitude", "English"],
+      duration: "60 minutes",
+      negativeMarking: "-0.5 per wrong answer",
+    },
+  ],
+  syllabusSummary: "General intelligence, general awareness, quantitative aptitude, and English.",
+  markingSchemeSummary: "2 marks per correct answer, -0.5 for an incorrect answer (Tier I).",
+  rules: {
+    ageMin: 18,
+    ageMax: 27,
+    ageCutoffDate: "2025-08-01",
+    ageRelaxationByCategory: STANDARD_AGE_RELAXATION,
+    requiredDegree: "12th Pass",
+    requiredSubject: null,
+    minPercentage: null,
+    eligibleCategories: null,
+    domicileRequired: false,
+    examState: null,
+    genderRequirement: null,
+    physicalRequirements: null,
+    experienceRequirements: null,
+    otherConditions: null,
+    notificationDate: "2025-04-10",
+  },
+};
+
+/** IDs the user has submitted an application for. */
+export const demoAppliedExamIds = ["ibps-po-2026", "ssc-chsl-2025"];
+
+export const demoAdmitCardCount = 1;
+export const demoResultCount = 1;
+
+export const demoNotifications: AppNotification[] = [
+  {
+    id: "n1",
+    title: "IBPS PO 2026 closes in 6 days",
+    body: "The application window for IBPS PO 2026 closes on 20 September.",
+    type: "deadline",
+    createdAt: "2026-09-13T09:00:00+05:30",
+    isRead: false,
+  },
+  {
+    id: "n2",
+    title: "SSC GD Constable 2026 notification released",
+    body: "A new recruitment cycle has opened. Check your eligibility on the Jobs tab.",
+    type: "system",
+    createdAt: "2026-08-25T10:00:00+05:30",
+    isRead: true,
+  },
+  {
+    id: "n3",
+    title: "Document needs review",
+    body: "We couldn't confidently read the passing year on your graduation certificate. Please confirm it.",
+    type: "system",
+    createdAt: "2026-08-14T18:22:00+05:30",
+    isRead: true,
+  },
+];

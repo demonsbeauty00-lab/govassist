@@ -1,0 +1,51 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    @apply border-hairline;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-paper text-ink font-body antialiased;
+  }
+
+  /* Visible keyboard focus everywhere; never remove without replacing. */
+  :focus-visible {
+    outline: 2px solid theme("colors.brand.600");
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  h1,
+  h2,
+  h3 {
+    @apply font-display;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer utilities {
+  .app-shell {
+    @apply mx-auto w-full max-w-app min-h-screen bg-paper relative;
+  }
+
+  .tap-target {
+    @apply min-h-[44px] min-w-[44px];
+  }
+}

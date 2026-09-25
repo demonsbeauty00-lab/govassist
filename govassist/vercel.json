@@ -1,0 +1,12 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/check-sources",
+      "schedule": "0 03 * * *"
+    },
+    {
+      "path": "/api/cron/check-pyq-sources",
+      "schedule": "0 04 * * 0"
+    }
+  ]
+}
