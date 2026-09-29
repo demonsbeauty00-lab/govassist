@@ -6,6 +6,39 @@
 // without CLI/network access in this environment.
 // ---------------------------------------------------------------------------
 
+// Shape of paper_attempts.section_breakdown (see 0011_attempt_analytics.sql).
+// A snapshot computed once at submission time by lib/pyq/analytics.ts —
+// kept here (not imported from that module) so this file has no
+// dependency on application code, consistent with the rest of the file
+// being a pure generated-style type mirror.
+export interface SectionBreakdownEntry {
+  sectionId: string | null;
+  sectionName: string;
+  totalQuestions: number;
+  attempted: number;
+  correct: number;
+  incorrect: number;
+  unattempted: number;
+  marksEarned: number;
+  negativeMarks: number;
+  score: number;
+  maxScore: number;
+  accuracy: number | null;
+}
+export interface SectionBreakdownJson {
+  sections: SectionBreakdownEntry[];
+}
+
+// Shape of response_sheet_uploads.extracted_answers — one entry per
+// question the (currently non-existent) extraction step managed to read.
+// Same confidence-labeling convention as documents.extracted_fields.
+export interface ResponseSheetExtractedAnswer {
+  questionNumber: number;
+  value: string; // option label ("A") or numeric answer, matching the question's own type
+  confidence: "high" | "medium" | "low";
+  confirmed: boolean;
+}
+
 export interface Database {
   public: {
     Tables: {
@@ -37,7 +70,7 @@ export interface Database {
           preferred_categories: string[];
           onboarding_completed_at: string | null;
           saved_exam_slugs: string[];
-          notification_preferences: { deadline?: boolean; admit_card?: boolean; result?: boolean; system?: boolean };
+          notification_preferences: { deadline?: boolean; admit_card?: boolean; result?: boolean; system?: boolean; eligible_alerts?: boolean };
           updated_at: string;
         };
         Insert: Partial<Database["public"]["Tables"]["profiles"]["Row"]> & { user_id: string; full_name: string; dob: string; gender: string; state: string; category: string };
@@ -323,6 +356,7 @@ export interface Database {
           body: string;
           type: "deadline" | "admit_card" | "result" | "system";
           is_read: boolean;
+          dedupe_key: string | null;
           created_at: string;
         };
         Insert: Partial<Database["public"]["Tables"]["notifications"]["Row"]> & { user_id: string; title: string; body: string; type: string };
@@ -362,6 +396,10 @@ export interface Database {
           ingestion_run_id: string | null;
           verified_by: string | null;
           verified_at: string | null;
+          answer_key_status: "provisional" | "revised" | "final" | null;
+          answer_key_version: number;
+          answer_key_published_at: string | null;
+          answer_key_source_url: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -417,6 +455,7 @@ export interface Database {
           source_reference: string | null;
           content_hash: string;
           duplicate_of_question_id: string | null;
+          question_status_flag: "normal" | "dropped" | "bonus_awarded" | "disputed";
           created_at: string;
           updated_at: string;
         };
@@ -479,6 +518,7 @@ export interface Database {
           reviewed_by: string | null;
           reviewed_at: string | null;
           review_notes: string | null;
+          run_type: "initial_ingestion" | "answer_key_update";
           started_at: string;
           completed_at: string | null;
           created_at: string;
@@ -493,7 +533,8 @@ export interface Database {
           paper_id: string | null;
           event_type:
             | "fetched" | "fetch_failed" | "duplicate_skipped" | "extracted" | "classified"
-            | "auto_published" | "needs_review" | "rejected" | "reviewed" | "question_flagged_duplicate";
+            | "auto_published" | "needs_review" | "rejected" | "reviewed" | "question_flagged_duplicate"
+            | "answer_key_revised";
           previous_value: unknown;
           new_value: unknown;
           reviewer: string | null;
@@ -522,6 +563,11 @@ export interface Database {
           score: number;
           max_score: number;
           accuracy: number | null;
+          marks_earned: number | null;
+          negative_marks_deducted: number | null;
+          section_breakdown: SectionBreakdownJson | null;
+          attempt_source: "mock_attempt" | "manual_entry" | "response_sheet_upload";
+          answer_key_version_at_submission: number;
           created_at: string;
           updated_at: string;
         };
@@ -545,6 +591,27 @@ export interface Database {
         };
         Insert: Partial<Database["public"]["Tables"]["paper_attempt_answers"]["Row"]> & { attempt_id: string; question_id: string };
         Update: Partial<Database["public"]["Tables"]["paper_attempt_answers"]["Row"]>;
+      };
+      response_sheet_uploads: {
+        Row: {
+          id: string;
+          user_id: string;
+          paper_id: string;
+          storage_path: string;
+          file_name: string | null;
+          status: "pending" | "processing" | "needs_review" | "processed" | "failed";
+          extracted_answers: ResponseSheetExtractedAnswer[];
+          overall_confidence: number | null;
+          error_message: string | null;
+          reviewed_by: string | null;
+          reviewed_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["response_sheet_uploads"]["Row"]> & {
+          user_id: string; paper_id: string; storage_path: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["response_sheet_uploads"]["Row"]>;
       };
     };
   };

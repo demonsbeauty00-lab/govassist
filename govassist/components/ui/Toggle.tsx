@@ -6,9 +6,10 @@ interface ToggleProps {
   label: string;
   description?: string;
   id?: string;
+  disabled?: boolean;
 }
 
-export function Toggle({ checked, onChange, label, description, id }: ToggleProps) {
+export function Toggle({ checked, onChange, label, description, id, disabled }: ToggleProps) {
   return (
     <div className="flex items-center justify-between gap-4 py-1">
       <div>
@@ -22,10 +23,12 @@ export function Toggle({ checked, onChange, label, description, id }: ToggleProp
         type="button"
         role="switch"
         aria-checked={checked}
+        disabled={disabled}
         onClick={() => onChange(!checked)}
         className={cx(
           "relative h-6 w-11 shrink-0 rounded-full transition-colors tap-target",
-          checked ? "bg-brand-600" : "bg-paper-sunk"
+          checked ? "bg-brand-600" : "bg-paper-sunk",
+          disabled && "cursor-not-allowed opacity-50"
         )}
       >
         <span

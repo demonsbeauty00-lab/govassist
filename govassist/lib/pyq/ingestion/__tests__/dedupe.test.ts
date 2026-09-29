@@ -31,14 +31,14 @@ describe("detectDuplicates", () => {
     const hash = hashQuestionContent(q.prompt, q.options.map((o) => o.text));
     const existing = new Map([[hash, "existing-question-id"]]);
     const [result] = detectDuplicates([q], existing);
-    expect(result.isDuplicate).toBe(true);
-    expect(result.duplicateOfQuestionId).toBe("existing-question-id");
+    expect(result?.isDuplicate).toBe(true);
+    expect(result?.duplicateOfQuestionId).toBe("existing-question-id");
   });
 
   it("does not flag a genuinely new question", () => {
     const q = makeQuestion();
     const [result] = detectDuplicates([q], new Map());
-    expect(result.isDuplicate).toBe(false);
-    expect(result.duplicateOfQuestionId).toBeNull();
+    expect(result?.isDuplicate).toBe(false);
+    expect(result?.duplicateOfQuestionId).toBeNull();
   });
 });

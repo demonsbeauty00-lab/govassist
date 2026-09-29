@@ -24,7 +24,7 @@ describe("scoreAttempt", () => {
   it("scores a numerical answer by exact normalized match", () => {
     const outcome = scoreAttempt(QUESTIONS, [{ questionId: "q3", selectedOptionId: null, numericAnswer: " 42 " }]);
     expect(outcome.correctCount).toBe(1);
-    expect(outcome.perQuestion.q3.isCorrect).toBe(true);
+    expect(outcome.perQuestion.q3?.isCorrect).toBe(true);
   });
 
   it("never awards marks for an empty-string numeric answer — treats it as unattempted", () => {

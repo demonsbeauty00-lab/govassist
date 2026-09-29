@@ -1,7 +1,7 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { Database } from "@/lib/supabase/database.types";
-import { notifySavedUsers } from "./notify";
+import { notifyRelevantUsers } from "./notify-relevant";
 
 type DetectedUpdateRow = Database["public"]["Tables"]["detected_updates"]["Row"];
 type ExamCyclesUpdate = Database["public"]["Tables"]["exam_cycles"]["Update"];
@@ -83,6 +83,8 @@ export async function applyDetectedUpdate(updateId: string, reviewedBy: string |
 
   let examName = update.title;
   let examSlug: string | null = null;
+  let examCategory: string | null = null;
+  let examState: string | null = null;
 
   if (update.exam_cycle_id) {
     const cyclePatch = buildExamCycleUpdate(update);
@@ -100,10 +102,12 @@ export async function applyDetectedUpdate(updateId: string, reviewedBy: string |
       .eq("id", update.exam_cycle_id)
       .maybeSingle();
     if (cycle) {
-      const { data: exam } = await supabase.from("exams").select("slug, short_name").eq("id", cycle.exam_id).maybeSingle();
+      const { data: exam } = await supabase.from("exams").select("slug, short_name, category, state").eq("id", cycle.exam_id).maybeSingle();
       if (exam) {
         examSlug = exam.slug;
         examName = exam.short_name;
+        examCategory = exam.category;
+        examState = exam.state;
       }
     }
   }
@@ -129,12 +133,19 @@ export async function applyDetectedUpdate(updateId: string, reviewedBy: string |
     processed_at: now,
   });
 
-  if (examSlug) {
-    await notifySavedUsers({
+  // Phase 8: targeted fan-out (applied → saved → opted-in eligible) instead
+  // of saved-only. Runs when there's anything to target by — an exam slug
+  // (saved users) and/or a linked cycle (applied / eligible users).
+  if (examSlug || update.exam_cycle_id) {
+    await notifyRelevantUsers({
+      updateId: update.id,
+      updateType: update.update_type,
+      examCycleId: update.exam_cycle_id,
       examSlug,
+      examCategory,
+      examState,
       title: NOTIFICATION_TITLES[update.update_type as keyof typeof NOTIFICATION_TITLES](examName),
       body: `Source: Official ${update.official_url.includes("http") ? new URL(update.official_url).hostname : update.official_url}. ${update.title}`,
-      type: update.update_type === "admit_card" ? "admit_card" : update.update_type === "result" ? "result" : "system",
     });
   }
 

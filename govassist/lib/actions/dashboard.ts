@@ -2,6 +2,8 @@
 
 import { requireUser } from "./session";
 import { MISSING_SUPABASE_CONFIG_MESSAGE } from "@/lib/env";
+import { computeAttemptPercentage } from "@/lib/pyq/analytics";
+import { AnswerKeyPaperInput, RecentAttemptInput } from "@/lib/dashboard/personalized";
 
 export interface DashboardSummary {
   unreadNotificationCount: number;
@@ -31,7 +33,7 @@ export async function getTopBarInfoAction(): Promise<{ error?: string; fullName:
   const { supabase, user } = result;
 
   const [{ data: profile }, { count: unreadCount }] = await Promise.all([
-    supabase.from("profiles").select("full_name").eq("id", user.id).maybeSingle(),
+    supabase.from("profiles").select("full_name").eq("user_id", user.id).maybeSingle(),
     supabase.from("notifications").select("id", { count: "exact", head: true }).eq("user_id", user.id).eq("is_read", false),
   ]);
 
@@ -74,4 +76,64 @@ export async function getDashboardSummaryAction(): Promise<{ error?: string; sum
       publishedPaperCount: paperCount ?? 0,
     },
   };
+}
+
+/**
+ * The REAL-data inputs to the personalized dashboard (everything except the
+ * exam catalog, which is still sample data — see app/(app)/home/page.tsx):
+ * papers that have an official answer key recorded and are relevant to the
+ * user (their saved exams, or a paper they've attempted), and their latest
+ * submitted mock attempts. Every read is the signed-in user's own session
+ * client, so RLS applies exactly as everywhere else — attempts are only
+ * ever the user's own, papers are the published-only public set.
+ */
+export async function getPersonalizedRealDataAction(): Promise<{
+  error?: string;
+  answerKeyPapers: AnswerKeyPaperInput[];
+  recentAttempts: RecentAttemptInput[];
+}> {
+  const result = await requireUser();
+  if (!result.ok) return { error: MISSING_SUPABASE_CONFIG_MESSAGE, answerKeyPapers: [], recentAttempts: [] };
+  const { supabase, user } = result;
+
+  const [{ data: profile }, { data: attempts }] = await Promise.all([
+    supabase.from("profiles").select("saved_exam_slugs").eq("user_id", user.id).maybeSingle(),
+    supabase
+      .from("paper_attempts")
+      .select("id, paper_id, score, max_score, submitted_at")
+      .eq("user_id", user.id)
+      .eq("status", "submitted")
+      .order("submitted_at", { ascending: false })
+      .limit(20),
+  ]);
+
+  const savedSlugs = profile?.saved_exam_slugs ?? [];
+  const attemptRows = (attempts ?? []).filter((a) => a.submitted_at !== null);
+  const attemptedPaperIds = Array.from(new Set(attemptRows.map((a) => a.paper_id)));
+
+  const [{ data: bySlug }, { data: byAttempt }] = await Promise.all([
+    savedSlugs.length > 0
+      ? supabase.from("papers").select("id, title, answer_key_status, answer_key_published_at").eq("status", "published").not("answer_key_status", "is", null).in("exam_slug", savedSlugs)
+      : Promise.resolve({ data: [] as { id: string; title: string; answer_key_status: "provisional" | "revised" | "final" | null; answer_key_published_at: string | null }[] }),
+    attemptedPaperIds.length > 0
+      ? supabase.from("papers").select("id, title, answer_key_status, answer_key_published_at").eq("status", "published").in("id", attemptedPaperIds)
+      : Promise.resolve({ data: [] as { id: string; title: string; answer_key_status: "provisional" | "revised" | "final" | null; answer_key_published_at: string | null }[] }),
+  ]);
+
+  const titleByPaperId = new Map((byAttempt ?? []).map((p) => [p.id, p.title]));
+
+  const answerKeyMap = new Map<string, AnswerKeyPaperInput>();
+  for (const p of [...(bySlug ?? []), ...(byAttempt ?? [])]) {
+    if (!p.answer_key_status) continue;
+    answerKeyMap.set(p.id, { paperId: p.id, title: p.title, status: p.answer_key_status, publishedAt: p.answer_key_published_at });
+  }
+
+  const recentAttempts: RecentAttemptInput[] = attemptRows.slice(0, 3).map((a) => ({
+    attemptId: a.id,
+    paperTitle: titleByPaperId.get(a.paper_id) ?? "Mock test",
+    percentage: computeAttemptPercentage(a.score, a.max_score),
+    submittedAt: a.submitted_at as string,
+  }));
+
+  return { answerKeyPapers: Array.from(answerKeyMap.values()), recentAttempts };
 }

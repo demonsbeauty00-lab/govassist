@@ -3,6 +3,7 @@ import { StatTile } from "@/components/exams/StatTile";
 import { ProfileCompletionCard } from "@/components/profile/ProfileCompletionCard";
 import { ExamNotificationRow } from "@/components/home/ExamNotificationRow";
 import { HeroIllustration } from "@/components/home/HeroIllustration";
+import { PersonalizedSections } from "@/components/home/PersonalizedSections";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -12,6 +13,7 @@ import { CheckCircleIcon, UploadIcon, PreparationIcon, DocumentsIcon, ChevronRig
 import { ExamCycle } from "@/lib/types";
 import { EXAM_CATEGORY_OPTIONS } from "@/lib/constants";
 import { DashboardSummary } from "@/lib/actions/dashboard";
+import { PersonalizedDashboard } from "@/lib/dashboard/personalized";
 
 interface HomeStats {
   potentiallyEligible: number;
@@ -28,6 +30,7 @@ interface HomeContentProps {
   savedSlugs: string[];
   summary: DashboardSummary;
   totalExamsCovered: number;
+  personalized: PersonalizedDashboard;
 }
 
 // Colors deliberately reuse Tailwind's built-in palette (purple/pink/cyan
@@ -46,7 +49,7 @@ const QUICK_ACTIONS = [
 // we don't have (there's no real "category color" field in the schema).
 const CATEGORY_TONES = ["bg-pink-50 text-pink-600", "bg-brand-50 text-brand-700", "bg-amber-50 text-amber-700", "bg-cyan-50 text-cyan-700", "bg-eligible-bg text-eligible-fg", "bg-ineligible-bg text-ineligible-fg", "bg-purple-50 text-purple-600"];
 
-export function HomeContent({ firstName, completionPercent, stats, latestExams, savedSlugs, summary, totalExamsCovered }: HomeContentProps) {
+export function HomeContent({ firstName, completionPercent, stats, latestExams, savedSlugs, summary, totalExamsCovered, personalized }: HomeContentProps) {
   const greetingHour = new Date().getHours();
   const greeting = greetingHour < 12 ? "Good morning" : greetingHour < 17 ? "Good afternoon" : "Good evening";
 
@@ -84,6 +87,11 @@ export function HomeContent({ firstName, completionPercent, stats, latestExams, 
             </Card>
           </Link>
         ))}
+      </div>
+
+      <h2 className="mt-6 text-[15px] font-semibold text-ink">For you</h2>
+      <div className="mt-3">
+        <PersonalizedSections data={personalized} />
       </div>
 
       <div className="mt-6 md:grid md:grid-cols-3 md:gap-5">

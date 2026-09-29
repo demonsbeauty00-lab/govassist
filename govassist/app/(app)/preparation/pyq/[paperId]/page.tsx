@@ -92,6 +92,11 @@ export default async function PaperDetailsPage({ params }: { params: { paperId: 
           Start mock test
         </Button>
       </Link>
+      <Link href={`/preparation/pyq/${paper.id}/answer-key`}>
+        <Button variant="secondary" fullWidth className="mt-2">
+          Already took this exam? Calculate your score
+        </Button>
+      </Link>
     </AppShell>
   );
 }

@@ -2,7 +2,8 @@ import { AppShell } from "@/components/layout/AppShell";
 import { ConfigErrorScreen } from "@/components/ConfigErrorScreen";
 import { getProfileWithEducation } from "@/lib/actions/profile";
 import { getDocumentsAction } from "@/lib/actions/documents";
-import { getDashboardSummaryAction } from "@/lib/actions/dashboard";
+import { getDashboardSummaryAction, getPersonalizedRealDataAction } from "@/lib/actions/dashboard";
+import { buildPersonalizedDashboard } from "@/lib/dashboard/personalized";
 import { computeProfileCompletion } from "@/lib/profile-completion";
 import { HomeContent } from "@/components/home/HomeContent";
 import { MISSING_SUPABASE_CONFIG_MESSAGE } from "@/lib/env";
@@ -11,10 +12,11 @@ import { evaluateEligibility } from "@/lib/eligibility/engine";
 import { profileToApplicant } from "@/lib/eligibility/from-profile";
 
 export default async function HomePage() {
-  const [profileResult, documentsResult, dashboardResult] = await Promise.all([
+  const [profileResult, documentsResult, dashboardResult, realDataResult] = await Promise.all([
     getProfileWithEducation(),
     getDocumentsAction(),
     getDashboardSummaryAction(),
+    getPersonalizedRealDataAction(),
   ]);
 
   if (profileResult.configError) {
@@ -38,6 +40,14 @@ export default async function HomePage() {
   const closingSoon = examsWithEligibility.filter((e) => e.exam.applicationWindow.status === "closing_soon");
   const savedSlugs = profileResult.profile?.saved_exam_slugs ?? [];
 
+  const personalized = buildPersonalizedDashboard({
+    exams: examsWithEligibility,
+    savedSlugs,
+    now: new Date(),
+    answerKeyPapers: realDataResult.answerKeyPapers,
+    recentAttempts: realDataResult.recentAttempts,
+  });
+
   const latestExams = [...demoExamCycles]
     .sort((a, b) => b.notificationDate.localeCompare(a.notificationDate))
     .slice(0, 5);
@@ -57,6 +67,7 @@ export default async function HomePage() {
         savedSlugs={savedSlugs}
         summary={dashboardResult.summary}
         totalExamsCovered={demoExamCycles.length}
+        personalized={personalized}
       />
     </AppShell>
   );

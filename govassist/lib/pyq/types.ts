@@ -5,7 +5,7 @@
 // the mapping boundary.
 // ---------------------------------------------------------------------------
 
-import { Database } from "@/lib/supabase/database.types";
+import { Database, SectionBreakdownEntry } from "@/lib/supabase/database.types";
 
 export type PaperStatus = Database["public"]["Tables"]["papers"]["Row"]["status"];
 export type QuestionType = Database["public"]["Tables"]["questions"]["Row"]["question_type"];
@@ -113,4 +113,19 @@ export interface AttemptResult {
   maxScore: number;
   accuracy: number | null;
   timeTakenSeconds: number;
+  /** Score as a percentage of maxScore — distinct from `accuracy`, which
+   *  is correct/(correct+incorrect) and ignores unattempted questions. */
+  attemptPercentage: number | null;
+  avgTimePerQuestionSeconds: number | null;
+  marksEarned: number | null;
+  negativeMarksDeducted: number | null;
+  sectionBreakdown: SectionBreakdownEntry[];
+  attemptSource: "mock_attempt" | "manual_entry" | "response_sheet_upload";
+  /** Answer-key context — see lib/actions/answer-key.ts. `isStale` means
+   *  the paper's answer key has been revised since this attempt was
+   *  scored (papers.answer_key_version has advanced past what this
+   *  attempt was calculated against); recalculateAttemptAction lets the
+   *  user re-score against the current key. */
+  answerKeyStatus: "provisional" | "revised" | "final" | null;
+  isStale: boolean;
 }

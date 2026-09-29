@@ -16,6 +16,9 @@ export default async function PyqAdminReviewsPage() {
       <a href="/admin/reviews" className="mt-2 inline-block text-sm font-medium text-brand-600 underline">
         ← Official update reviews
       </a>
+      <a href="/admin/answer-keys" className="mt-2 ml-4 inline-block text-sm font-medium text-brand-600 underline">
+        Manage answer keys →
+      </a>
 
       {result.error ? (
         <p className="mt-6 text-sm text-ineligible-fg">{result.error}</p>
