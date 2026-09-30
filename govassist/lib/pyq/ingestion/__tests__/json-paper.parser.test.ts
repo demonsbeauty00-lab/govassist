@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { jsonPaperParser } from "../json-paper.parser";
+import { jsonPaperParser } from "../parsers/json-paper.parser";
 
 const VALID_PAPER = {
   examSlug: "ssc-cgl-2026",
@@ -49,7 +49,7 @@ describe("jsonPaperParser", () => {
     const paper = { ...VALID_PAPER, questions: [{ ...VALID_PAPER.questions[0], confidence: undefined }] };
     const result = jsonPaperParser.parse(JSON.stringify(paper), { documentUrl: "x", organization: "x" });
     // Missing confidence falls back to a conservative 0.5, never 1.0.
-    expect(result?.questions[0].confidence).toBe(0.5);
+    expect(result?.questions[0]?.confidence).toBe(0.5);
   });
 
   it("computes a lower paper confidence when structural pieces (sections/marking schemes) are missing", () => {
