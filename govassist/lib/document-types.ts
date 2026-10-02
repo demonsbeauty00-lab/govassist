@@ -9,6 +9,7 @@ export const DOCUMENT_TYPES = [
   "Graduation Certificate",
   "Category Certificate",
   "Domicile Certificate",
+  "Identity Document",
   "Photo",
   "Signature",
   "Other",
@@ -44,6 +45,7 @@ export const FIELD_TEMPLATES: Record<DocumentType, string[]> = {
   "Graduation Certificate": ["Name", "Degree", "Subject", "University", "Passing year"],
   "Category Certificate": ["Name", "Category", "Certificate number", "Issue date"],
   "Domicile Certificate": ["Name", "State", "Issue date"],
+  "Identity Document": ["Name", "Date of birth", "ID number"],
   Photo: [],
   Signature: [],
   Other: [],
@@ -53,8 +55,16 @@ export const FIELD_TEMPLATES: Record<DocumentType, string[]> = {
  *  its own named type (rather than an inline union) so it can be reused
  *  everywhere a "profile field this pipeline is allowed to touch" needs to
  *  be expressed, including profileUpdate's type in
- *  applyExtractedFieldsToProfileAction (lib/actions/documents.ts). */
-export type ProfileEditableField = "full_name" | "dob";
+ *  applyExtractedFieldsToProfileAction (lib/actions/documents.ts).
+ *
+ *  "state" (domicile) is safe to copy as free text, like full_name/dob.
+ *  profiles.category is NOT in this list — it's a closed enum, and a raw
+ *  OCR string ("O.B.C.", "General (UR)") could silently write a value the
+ *  eligibility engine then can't match against anything. Category is
+ *  applied separately, through lib/documents/normalize-category.ts's
+ *  validated mapping, and only when it resolves to a real enum value —
+ *  see applyExtractedFieldsToProfileAction. */
+export type ProfileEditableField = "full_name" | "dob" | "state";
 
 /** Maps a subset of extracted field labels to profile columns — used only
  *  when the user explicitly applies confirmed fields to their profile (see
@@ -68,9 +78,10 @@ export type ProfileEditableField = "full_name" | "dob";
  *  infer profileField as exactly ProfileEditableField, a real, always-valid
  *  key — see the comment above PROFILE_FIELD_ENTRIES for why iteration
  *  uses that instead of Object.entries() directly. */
-export const PROFILE_FIELD_MAP: Record<"Name" | "Date of birth", ProfileEditableField> = {
+export const PROFILE_FIELD_MAP: Record<"Name" | "Date of birth" | "State", ProfileEditableField> = {
   Name: "full_name",
   "Date of birth": "dob",
+  State: "state",
 };
 
 /**
@@ -86,6 +97,7 @@ export const PROFILE_FIELD_MAP: Record<"Name" | "Date of birth", ProfileEditable
 export const PROFILE_FIELD_ENTRIES: readonly [label: string, field: ProfileEditableField][] = [
   ["Name", "full_name"],
   ["Date of birth", "dob"],
+  ["State", "state"],
 ];
 
 export const EDUCATION_FIELD_MAP: Record<DocumentType, { qualification_level: string } | null> = {
@@ -94,6 +106,7 @@ export const EDUCATION_FIELD_MAP: Record<DocumentType, { qualification_level: st
   "Graduation Certificate": { qualification_level: "Graduate" },
   "Category Certificate": null,
   "Domicile Certificate": null,
+  "Identity Document": null,
   Photo: null,
   Signature: null,
   Other: null,

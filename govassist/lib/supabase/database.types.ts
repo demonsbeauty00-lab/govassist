@@ -102,7 +102,7 @@ export interface Database {
           storage_path: string | null;
           file_name: string | null;
           source: "manual_upload" | "digilocker" | null;
-          extracted_fields: { label: string; value: string; confidence: "high" | "medium" | "low"; confirmed: boolean }[];
+          extracted_fields: { label: string; value: string; confidence: "high" | "medium" | "low"; sourceDocumentType: string; confirmed: boolean }[];
           uploaded_at: string | null;
           created_at: string;
           updated_at: string;

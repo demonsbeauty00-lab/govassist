@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireUser } from "./session";
 import { MISSING_SUPABASE_CONFIG_MESSAGE } from "@/lib/env";
 import { DOCUMENT_TYPES, DocumentType, PROFILE_FIELD_ENTRIES, ProfileEditableField, EDUCATION_FIELD_MAP, DOCUMENT_TYPE_SLUGS } from "@/lib/document-types";
+import { normalizeCategoryValue } from "@/lib/documents/normalize-category";
 import { extractDocumentFields, ExtractedField } from "@/lib/ocr/extract";
 import { Database } from "@/lib/supabase/database.types";
 
@@ -334,10 +335,27 @@ export async function applyExtractedFieldsToProfileAction(documentId: string): P
 
   const fieldMap = new Map<string, string>(doc.extracted_fields.map((f: ExtractedField) => [f.label, f.value]));
 
-  const profileUpdate: Partial<Record<ProfileEditableField, string>> = {};
+  const profileUpdate: Partial<Record<ProfileEditableField | "category", string>> = {};
   for (const [label, profileField] of PROFILE_FIELD_ENTRIES as Array<[string, ProfileEditableField]>) {
     const value = fieldMap.get(label);
     if (value) profileUpdate[profileField] = value;
+  }
+
+  // Category is deliberately NOT in PROFILE_FIELD_ENTRIES — profiles.category
+  // is a closed enum the eligibility engine matches verbatim, and a raw OCR
+  // string ("O.B.C.", "General (UR)") could silently write something it can
+  // never match. Only apply it when the normalizer confidently recognizes
+  // it; otherwise leave the profile untouched and say so, rather than
+  // guessing or failing silently.
+  const skippedFields: string[] = [];
+  const categoryValue = fieldMap.get("Category");
+  if (categoryValue) {
+    const normalized = normalizeCategoryValue(categoryValue);
+    if (normalized) {
+      profileUpdate.category = normalized;
+    } else {
+      skippedFields.push("Category");
+    }
   }
 
   if (Object.keys(profileUpdate).length > 0) {
@@ -380,6 +398,9 @@ export async function applyExtractedFieldsToProfileAction(documentId: string): P
 
   return {
     success: true,
-    message: "Your profile has been updated from your documents.",
+    message:
+      skippedFields.length > 0
+        ? `Your profile has been updated from your documents. ${skippedFields.join(", ")} couldn't be matched to a known value automatically — please set it manually on your profile.`
+        : "Your profile has been updated from your documents.",
   };
 }

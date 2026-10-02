@@ -34,6 +34,15 @@ export interface ExtractedField {
   label: string;
   value: string;
   confidence: "high" | "medium" | "low";
+  /** Which uploaded document this field was read from — the brief asks
+   *  for "source document" as one of every field's required attributes.
+   *  Redundant with page context today (a field is only ever shown on its
+   *  own document's detail page), but it's what makes that requirement
+   *  literally true in the data itself, not just implied by where the
+   *  field happens to be rendered — load-bearing the moment fields from
+   *  multiple documents are ever shown together (e.g. a future combined
+   *  profile-review view). */
+  sourceDocumentType: DocumentType;
   /** Set true once the user has reviewed/confirmed or edited this specific
    *  field — never true immediately after extraction, regardless of the
    *  OCR confidence, per "never silently assume OCR information is correct." */
@@ -63,6 +72,7 @@ export async function extractDocumentFields(documentType: DocumentType): Promise
     // "high" — a real OCR pass never is, and the UI must be able to show
     // (and the user must review) fields at every confidence level.
     confidence: (["medium", "high", "low"] as const)[i % 3] ?? "medium",
+    sourceDocumentType: documentType,
     confirmed: false,
   }));
 }
@@ -99,6 +109,11 @@ const SAMPLE_VALUES: Record<DocumentType, Record<string, string>> = {
     Name: "Aaditya Kumar Sharma",
     State: "Uttar Pradesh",
     "Issue date": "02-11-2020",
+  },
+  "Identity Document": {
+    Name: "AADITYA KUMAR SHARMA",
+    "Date of birth": "14-03-2001",
+    "ID number": "XXXX XXXX 4417",
   },
   Photo: {},
   Signature: {},
