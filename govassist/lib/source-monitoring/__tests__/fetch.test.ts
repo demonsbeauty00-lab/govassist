@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
+
+vi.mock("server-only", () => ({}));
+
 import { fetchAndHash } from "../fetch";
 
 describe("fetchAndHash", () => {

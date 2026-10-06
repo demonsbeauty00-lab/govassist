@@ -1,20 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { MenuIcon, BellIcon } from "@/components/ui/Icons";
-import { getTopBarInfoAction } from "@/lib/actions/dashboard";
+import { useTopBarInfo } from "@/lib/hooks/useTopBarInfo";
 import { MobileDrawer } from "./MobileDrawer";
 
 export function MobileHeaderWithDrawer() {
-  const [info, setInfo] = useState<{ fullName: string | null; email: string | null; unreadNotificationCount: number } | null>(null);
+  const info = useTopBarInfo();
   const [drawerOpen, setDrawerOpen] = useState(false);
-
-  useEffect(() => {
-    getTopBarInfoAction().then((result) => {
-      if (!result.error) setInfo({ fullName: result.fullName, email: result.email, unreadNotificationCount: result.unreadNotificationCount });
-    });
-  }, []);
 
   const displayName = info?.fullName?.trim() || "there";
   const initial = displayName.charAt(0).toUpperCase();

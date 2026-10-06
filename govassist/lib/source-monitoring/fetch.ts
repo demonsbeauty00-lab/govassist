@@ -9,7 +9,12 @@ const FETCH_TIMEOUT_MS = 15_000;
  *  from the server — requirement 3 asks us not to create noise, only to
  *  detect real changes. */
 function normalizeForHashing(content: string): string {
-  return content.replace(/\s+/g, " ").trim();
+ return content
+  .replace(/>\s+</g, "><")
+  .replace(/>\s+/g, ">")
+  .replace(/\s+</g, "<")
+  .replace(/\s+/g, " ")
+  .trim(); 
 }
 
 export function hashContent(content: string): string {

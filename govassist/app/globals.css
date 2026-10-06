@@ -48,4 +48,12 @@
   .tap-target {
     @apply min-h-[44px] min-w-[44px];
   }
+
+  /* Global top navigation progress bar (components/layout/NavigationProgress.tsx).
+     Width and opacity are driven from JS; this just makes both animate
+     smoothly instead of snapping. Respects prefers-reduced-motion via the
+     global rule above (transition-duration collapses to ~0). */
+  .nav-progress-bar {
+    transition: width 400ms ease-out, opacity 200ms ease-out;
+  }
 }

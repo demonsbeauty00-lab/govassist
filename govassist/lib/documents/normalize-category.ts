@@ -22,7 +22,7 @@ const PATTERNS: Array<{ category: ProfileCategory; test: RegExp }> = [
   // Longest/most specific patterns first — "Economically Weaker" must not
   // be caught by a shorter, more general pattern below it.
   { category: "EWS", test: /\bEWS\b|economically\s*weaker/i },
-  { category: "OBC", test: /\bOBC\b|other\s*backward/i },
+  { category: "OBC", test: /\bO\.?\s*B\.?\s*C\.?\b|other\s*backward/i },
   { category: "SC", test: /\bSC\b|scheduled\s*caste/i },
   { category: "ST", test: /\bST\b|scheduled\s*tribe/i },
   { category: "General", test: /\bgeneral\b|\bunreserved\b|\bUR\b|\bGEN\b/i },

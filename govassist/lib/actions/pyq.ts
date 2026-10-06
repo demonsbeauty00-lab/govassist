@@ -99,32 +99,40 @@ export async function startAttemptAction(
   if (!result.ok) return { error: MISSING_SUPABASE_CONFIG_MESSAGE };
   const { supabase, user } = result;
 
-  const { data: paperRow, error: paperError } = await supabase.from("papers").select("*").eq("id", paperId).eq("status", "published").maybeSingle();
+  // paperRow and the in-progress-attempt lookup are independent of each
+  // other (the lookup only needs paperId/user.id/attemptSource, never
+  // paperRow's own fields), so they run in parallel — previously these
+  // were two sequential round trips. If paperRow turns out missing, the
+  // `existing` result is simply unused below; nothing is wasted by having
+  // fetched it, since it's cheap and already in flight.
+  const [{ data: paperRow, error: paperError }, { data: existing }] = await Promise.all([
+    supabase.from("papers").select("*").eq("id", paperId).eq("status", "published").maybeSingle(),
+    // Resume an existing in-progress attempt instead of starting a fresh
+    // one — otherwise a page refresh mid-test would silently discard
+    // progress.
+    supabase
+      .from("paper_attempts")
+      .select("*")
+      .eq("paper_id", paperId)
+      .eq("user_id", user.id)
+      .eq("status", "in_progress")
+      .eq("attempt_source", attemptSource)
+      .order("started_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ]);
   if (paperError) return { error: paperError.message };
   if (!paperRow) return { error: "This paper isn't available." };
 
-  // Resume an existing in-progress attempt instead of starting a fresh one
-  // — otherwise a page refresh mid-test would silently discard progress.
-  const { data: existing } = await supabase
-    .from("paper_attempts")
-    .select("*")
-    .eq("paper_id", paperId)
-    .eq("user_id", user.id)
-    .eq("status", "in_progress")
-    .eq("attempt_source", attemptSource)
-    .order("started_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
   const admin = createAdminClient();
-  const { data: questionRows } = await admin
-    .from("questions")
-    .select("*")
-    .eq("paper_id", paperId)
-    .eq("status", "published")
-    .order("question_number", { ascending: true });
-  const { data: optionRows } = await admin.from("question_options").select("*");
-  const { data: schemeRows } = await admin.from("marking_schemes").select("*").eq("paper_id", paperId);
+  // Three more independent reads (none depends on another's result) — same
+  // parallelization loadPaperQuestionsForScoring already uses elsewhere in
+  // this file; this call site just hadn't been updated to match.
+  const [{ data: questionRows }, { data: optionRows }, { data: schemeRows }] = await Promise.all([
+    admin.from("questions").select("*").eq("paper_id", paperId).eq("status", "published").order("question_number", { ascending: true }),
+    admin.from("question_options").select("*"),
+    admin.from("marking_schemes").select("*").eq("paper_id", paperId),
+  ]);
 
   if (!questionRows || questionRows.length === 0) {
     return { error: "This paper doesn't have any published questions yet." };

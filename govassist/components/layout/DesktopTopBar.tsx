@@ -4,22 +4,16 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { SearchIcon, BellIcon, ChevronDownIcon } from "@/components/ui/Icons";
-import { getTopBarInfoAction } from "@/lib/actions/dashboard";
+import { useTopBarInfo } from "@/lib/hooks/useTopBarInfo";
 import { signOutAction } from "@/lib/actions/auth";
 
 export function DesktopTopBar() {
   const router = useRouter();
-  const [info, setInfo] = useState<{ fullName: string | null; unreadNotificationCount: number } | null>(null);
+  const info = useTopBarInfo();
   const [menuOpen, setMenuOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [loggingOut, startLogoutTransition] = useTransition();
   const menuRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    getTopBarInfoAction().then((result) => {
-      if (!result.error) setInfo({ fullName: result.fullName, unreadNotificationCount: result.unreadNotificationCount });
-    });
-  }, []);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
