@@ -15,6 +15,9 @@ export default async function AdminReviewsPage() {
       <a href="/admin/pyq-reviews" className="mt-2 inline-block text-sm font-medium text-brand-600 underline">
         Review PYQ papers →
       </a>
+      <a href="/admin/application-requests" className="mt-2 ml-4 inline-block text-sm font-medium text-brand-600 underline">
+        Application requests →
+      </a>
 
       {result.error ? (
         <p className="mt-6 text-sm text-ineligible-fg">{result.error}</p>

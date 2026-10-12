@@ -36,4 +36,42 @@ describe("normalizeCategoryValue", () => {
     expect(normalizeCategoryValue("EWS Certificate")).toBe("EWS");
     expect(normalizeCategoryValue("OBC (Non-Creamy Layer)")).toBe("OBC");
   });
+
+  it("recognizes dotted abbreviations only when the whole value is the abbreviation", () => {
+    expect(normalizeCategoryValue("O.B.C.")).toBe("OBC");
+    expect(normalizeCategoryValue("S.C.")).toBe("SC");
+    expect(normalizeCategoryValue("S.T.")).toBe("ST");
+    expect(normalizeCategoryValue("S.C")).toBe("SC");
+    expect(normalizeCategoryValue("O. B. C.")).toBe("OBC");
+    expect(normalizeCategoryValue("E.W.S.")).toBe("EWS");
+    expect(normalizeCategoryValue("U.R.")).toBe("General");
+  });
+
+  it("does not turn dotted initials in names or other text into a category", () => {
+    expect(normalizeCategoryValue("S.C. Verma")).toBeNull();
+    expect(normalizeCategoryValue("S.T. Mohan")).toBeNull();
+    expect(normalizeCategoryValue("Mr. S.C.")).toBeNull();
+    expect(normalizeCategoryValue("A.B. Singh")).toBeNull();
+    expect(normalizeCategoryValue("S.C.V.")).toBeNull();
+  });
+
+  it("recognizes OBC with the standard Non-Creamy Layer qualifier", () => {
+    expect(normalizeCategoryValue("O.B.C. (Non-Creamy Layer)")).toBe("OBC");
+    expect(normalizeCategoryValue("O.B.C. (NCL)")).toBe("OBC");
+    expect(normalizeCategoryValue("o.b.c.(non creamy layer)")).toBe("OBC");
+    expect(normalizeCategoryValue("Other Backward Class (Non-Creamy Layer)")).toBe("OBC");
+  });
+
+  it("does not let the qualifier rule match names, other categories, or other parentheses", () => {
+    expect(normalizeCategoryValue("S.C. (Non-Creamy Layer)")).toBeNull();
+    expect(normalizeCategoryValue("O.B.C. (Verma)")).toBeNull();
+    expect(normalizeCategoryValue("O.B.C. Verma (Non-Creamy Layer)")).toBeNull();
+    expect(normalizeCategoryValue("Mr. O.B.C. (Non-Creamy Layer)")).toBeNull();
+    expect(normalizeCategoryValue("S.C. Verma")).toBeNull();
+    expect(normalizeCategoryValue("S.T. Mohan")).toBeNull();
+    expect(normalizeCategoryValue("Mr. S.C.")).toBeNull();
+    expect(normalizeCategoryValue("A.B. Singh")).toBeNull();
+    expect(normalizeCategoryValue("Minority")).toBeNull();
+    expect(normalizeCategoryValue("XYZ123")).toBeNull();
+  });
 });

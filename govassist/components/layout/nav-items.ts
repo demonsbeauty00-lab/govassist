@@ -21,17 +21,14 @@ export interface NavItem {
   comingSoon?: boolean;
 }
 
-// Real, working routes only — Apply Assistant and Results are Phase
-// 10/13 in the master context and don't exist yet, so they're listed but
-// marked "Soon" rather than silently dropped or wired to something fake.
-// Apply Assistant does link somewhere (a real "coming soon" explanation
-// page), so it's still a normal item; Results has nowhere real to go yet,
-// so it stays non-clickable in both Sidebar and MobileDrawer.
+// Real, working routes only. Application Requests (manual admin assistance) lives at /apply-assistant.
+// Results (Phase 13) doesn't exist yet, so it is listed but marked "Soon"
+// and stays non-clickable in both Sidebar and MobileDrawer.
 export const NAV_ITEMS: NavItem[] = [
   { href: "/home", label: "Dashboard", icon: HomeIcon },
   { href: "/notifications", label: "Notifications", icon: BellIcon },
   { href: "/jobs", label: "Eligibility Check", icon: CheckCircleIcon },
-  { href: "/apply-assistant", label: "Apply Assistant", icon: UploadIcon, comingSoon: true },
+  { href: "/apply-assistant", label: "Application Requests", icon: UploadIcon },
   { href: "/preparation", label: "Mock Tests", icon: PreparationIcon },
   { href: "/preparation/pyq", label: "Previous Papers", icon: PapersIcon },
   { href: "/answer-key", label: "Answer Key Calculator", icon: AnswerKeyIcon },

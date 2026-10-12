@@ -39,7 +39,7 @@ interface HomeContentProps {
 // rather than replacing it, so this isn't an arbitrary one-off color.
 const QUICK_ACTIONS = [
   { href: "/jobs", label: "Eligibility Check", desc: "Check which exams you are eligible for", icon: CheckCircleIcon, tone: "text-eligible-fg bg-eligible-bg" },
-  { href: "/apply-assistant", label: "Apply Assistant", desc: "AI auto-fills your form in a few clicks", icon: UploadIcon, tone: "text-purple-600 bg-purple-50" },
+  { href: "/apply-assistant", label: "Application Requests", desc: "Ask an admin to help with your application", icon: UploadIcon, tone: "text-purple-600 bg-purple-50" },
   { href: "/preparation", label: "Mock Tests", desc: "Practice with PYQs & full length tests", icon: PreparationIcon, tone: "text-brand-700 bg-brand-50" },
   { href: "/documents", label: "Document Vault", desc: "Securely store your important documents", icon: DocumentsIcon, tone: "text-caution-fg bg-caution-bg" },
 ];

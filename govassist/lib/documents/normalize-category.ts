@@ -22,11 +22,22 @@ const PATTERNS: Array<{ category: ProfileCategory; test: RegExp }> = [
   // Longest/most specific patterns first — "Economically Weaker" must not
   // be caught by a shorter, more general pattern below it.
   { category: "EWS", test: /\bEWS\b|economically\s*weaker/i },
-  { category: "OBC", test: /\bO\.?\s*B\.?\s*C\.?\b|other\s*backward/i },
+  { category: "OBC", test: /\bOBC\b|other\s*backward/i },
   { category: "SC", test: /\bSC\b|scheduled\s*caste/i },
   { category: "ST", test: /\bST\b|scheduled\s*tribe/i },
   { category: "General", test: /\bgeneral\b|\bunreserved\b|\bUR\b|\bGEN\b/i },
 ];
+
+/** The entire value is letters separated by periods (optionally one space
+ *  after a period), e.g. "O.B.C.", "S.C.", "S.T", "O. B. C." — never a
+ *  sentence or name that merely contains a dotted abbreviation. */
+const DOTTED_ABBREVIATION = /^[A-Za-z](?:\.\s?[A-Za-z])+\.?$/;
+
+/** Dotted OBC followed by the ONE standard certificate qualifier, as the
+ *  whole value: "O.B.C. (Non-Creamy Layer)" / "O.B.C. (NCL)". The qualifier
+ *  is a fixed allow-list (not "any parenthesis"), and it is only accepted
+ *  after O.B.C. — so no name or other text can reach it. */
+const DOTTED_OBC_WITH_QUALIFIER = /^O\.\s?B\.\s?C\.?\s*\(\s*(?:non[-\s]?creamy\s*layer|ncl)\s*\)$/i;
 
 /** Returns the matching enum value, or null when the input doesn't
  *  confidently match any known category — including empty input. Never
@@ -36,9 +47,17 @@ const PATTERNS: Array<{ category: ProfileCategory; test: RegExp }> = [
  *  consistent with the fixed priority order above. */
 export function normalizeCategoryValue(raw: string): ProfileCategory | null {
   const trimmed = raw.trim();
-  if (trimmed.length === 0) return null;
+  // Dots are collapsed ONLY when the whole value is a dotted abbreviation
+  // ("O.B.C.", "S.C.", "S.T"). Anywhere else a period is left alone, so
+  // text like "S.C. Verma" (a name) never turns into "SC Verma".
+  const candidate = DOTTED_ABBREVIATION.test(trimmed)
+    ? trimmed.replace(/[.\s]/g, "")
+    : DOTTED_OBC_WITH_QUALIFIER.test(trimmed)
+      ? "OBC"
+      : trimmed;
+  if (candidate.length === 0) return null;
   for (const { category, test } of PATTERNS) {
-    if (test.test(trimmed)) return category;
+    if (test.test(candidate)) return category;
   }
   return null;
 }

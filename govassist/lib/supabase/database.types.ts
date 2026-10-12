@@ -613,6 +613,140 @@ export interface Database {
         };
         Update: Partial<Database["public"]["Tables"]["response_sheet_uploads"]["Row"]>;
       };
+      application_sessions: {
+        Row: {
+          id: string;
+          user_id: string;
+          exam_slug: string;
+          exam_cycle_id: string | null;
+          portal_adapter_id: string;
+          official_application_url: string;
+          status: "in_progress" | "paused" | "awaiting_user_action" | "ready_for_review" | "user_submitted" | "abandoned";
+          declaration_acknowledged_at: string | null;
+          started_at: string;
+          last_active_at: string;
+          submitted_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["application_sessions"]["Row"]> & {
+          user_id: string; exam_slug: string; portal_adapter_id: string; official_application_url: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["application_sessions"]["Row"]>;
+      };
+      application_session_fields: {
+        Row: {
+          id: string;
+          session_id: string;
+          field_key: string;
+          label: string;
+          field_type: "text" | "date" | "select" | "radio" | "checkbox" | "file" | "captcha" | "otp" | "payment" | "declaration" | "other";
+          classification: "auto_fill" | "needs_review" | "user_action_required" | "unsupported";
+          confidence: number;
+          source: "profile" | "document" | "derived" | null;
+          source_field: string | null;
+          suggested_value: string | null;
+          final_value: string | null;
+          status: "pending" | "auto_filled" | "user_confirmed" | "user_edited" | "skipped" | "blocked";
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["application_session_fields"]["Row"]> & {
+          session_id: string; field_key: string; label: string; field_type: string; classification: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["application_session_fields"]["Row"]>;
+      };
+      application_audit_log: {
+        Row: {
+          id: string;
+          session_id: string;
+          user_id: string;
+          event_type:
+            | "session_started" | "field_detected" | "field_autofilled" | "field_confirmed" | "field_edited"
+            | "field_skipped" | "user_action_required" | "declaration_acknowledged" | "session_paused"
+            | "session_resumed" | "submission_blocked" | "user_confirmed_submission" | "session_abandoned";
+          actor: "system" | "user";
+          detail: Record<string, unknown>;
+          created_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["application_audit_log"]["Row"]> & {
+          session_id: string; user_id: string; event_type: string; actor: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["application_audit_log"]["Row"]>;
+      };
+      // Manual Application Assistance (0016_application_requests.sql).
+      application_requests: {
+        Row: {
+          id: string;
+          request_code: string;
+          user_id: string;
+          exam_slug: string | null;
+          exam_title: string;
+          exam_key: string;
+          notification_url: string | null;
+          application_deadline: string | null;
+          post_applied: string | null;
+          assistance_type: "full_application" | "form_review" | "document_check";
+          applicant_name: string;
+          applicant_phone: string;
+          details: string | null;
+          consent_accepted_at: string;
+          consent_version: string;
+          status: "submitted" | "under_review" | "waiting_for_user" | "in_progress" | "completed" | "rejected" | "cancelled";
+          latest_update: string | null;
+          admin_message: string | null;
+          official_reference_number: string | null;
+          completed_at: string | null;
+          purge_after: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["application_requests"]["Row"]> & {
+          user_id: string; exam_title: string; exam_key: string; assistance_type: string;
+          applicant_name: string; applicant_phone: string; consent_accepted_at: string; consent_version: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["application_requests"]["Row"]>;
+      };
+      application_request_documents: {
+        Row: {
+          id: string;
+          request_id: string;
+          user_id: string;
+          kind: "supporting" | "confirmation";
+          uploaded_by: "user" | "admin";
+          purpose: string | null;
+          storage_path: string;
+          file_name: string;
+          mime_type: "application/pdf" | "image/jpeg" | "image/png";
+          size_bytes: number;
+          created_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["application_request_documents"]["Row"]> & {
+          request_id: string; user_id: string; storage_path: string; file_name: string; mime_type: string; size_bytes: number;
+        };
+        Update: Partial<Database["public"]["Tables"]["application_request_documents"]["Row"]>;
+      };
+      application_request_events: {
+        Row: {
+          id: string;
+          request_id: string;
+          actor_id: string | null;
+          actor_role: "user" | "admin" | "system";
+          event_type:
+            | "submitted" | "status_changed" | "admin_message" | "info_requested" | "user_reply"
+            | "internal_note" | "reference_added" | "confirmation_uploaded" | "document_added"
+            | "documents_deleted" | "cancelled_by_user" | "document_viewed";
+          from_status: string | null;
+          to_status: string | null;
+          message: string | null;
+          visibility: "user" | "internal";
+          created_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["application_request_events"]["Row"]> & {
+          request_id: string; actor_role: string; event_type: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["application_request_events"]["Row"]>;
+      };
     };
   };
 }
