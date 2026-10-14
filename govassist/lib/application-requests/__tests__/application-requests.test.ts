@@ -43,7 +43,9 @@ describe("status transitions", () => {
   it("allows the expected forward path", () => {
     expect(canAdminTransition("submitted", "under_review")).toBe(true);
     expect(canAdminTransition("under_review", "in_progress")).toBe(true);
-    expect(canAdminTransition("in_progress", "completed")).toBe(true);
+    expect(canAdminTransition("in_progress", "form_filled")).toBe(true);
+    expect(canAdminTransition("awaiting_user_action", "submitted_on_portal")).toBe(true);
+    expect(canAdminTransition("submitted_on_portal", "completed")).toBe(true);
   });
   it("blocks skipping straight to completed and leaving terminal states", () => {
     expect(canAdminTransition("submitted", "completed")).toBe(false);
@@ -60,8 +62,8 @@ describe("status transitions", () => {
     expect(validateAdminTransition({ ...base, to: "waiting_for_user", message: "Need photo" })).toBeNull();
     expect(validateAdminTransition({ ...base, to: "rejected", message: null })).not.toBeNull();
   });
-  it("only allows completed with a reference number or confirmation document", () => {
-    const base = { from: "in_progress" as const, to: "completed" as const, message: null };
+  it("only allows submitted_on_portal with a reference number or confirmation document", () => {
+    const base = { from: "awaiting_user_action" as const, to: "submitted_on_portal" as const, message: null };
     expect(validateAdminTransition({ ...base, officialReferenceNumber: null, hasConfirmationDocument: false })).not.toBeNull();
     expect(validateAdminTransition({ ...base, officialReferenceNumber: "REF123", hasConfirmationDocument: false })).toBeNull();
     expect(validateAdminTransition({ ...base, officialReferenceNumber: null, hasConfirmationDocument: true })).toBeNull();

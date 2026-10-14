@@ -2,6 +2,7 @@ import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { Database } from "@/lib/supabase/database.types";
 import { notifyRelevantUsers } from "./notify-relevant";
+import { syncRequestsForOfficialUpdate } from "@/lib/application-requests/official-sync";
 
 type DetectedUpdateRow = Database["public"]["Tables"]["detected_updates"]["Row"];
 type ExamCyclesUpdate = Database["public"]["Tables"]["exam_cycles"]["Update"];
@@ -147,6 +148,22 @@ export async function applyDetectedUpdate(updateId: string, reviewedBy: string |
       title: NOTIFICATION_TITLES[update.update_type as keyof typeof NOTIFICATION_TITLES](examName),
       body: `Source: Official ${update.official_url.includes("http") ? new URL(update.official_url).hostname : update.official_url}. ${update.title}`,
     });
+  }
+
+  // Phase 11: tell users who asked for application assistance on THIS cycle.
+  // Never allowed to undo or fail the already-published official update.
+  if (update.exam_cycle_id) {
+    try {
+      await syncRequestsForOfficialUpdate({
+        updateId: update.id,
+        updateType: update.update_type,
+        examCycleId: update.exam_cycle_id,
+        examName,
+        publicationDate: update.publication_date,
+      });
+    } catch (e) {
+      console.error("apply: application-request sync failed", e instanceof Error ? e.message : "unknown");
+    }
   }
 
   return {};

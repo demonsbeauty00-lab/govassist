@@ -7,18 +7,22 @@ import { Card } from "@/components/ui/Card";
 import { RequestStatusBadge } from "@/components/application-requests/StatusBadge";
 import { OpenDocumentButton } from "@/components/application-requests/OpenDocumentButton";
 import {
-  addInternalNoteAction, getAdminDocumentUrlAction, sendAdminMessageAction, updateRequestStatusAction,
-  uploadConfirmationDocumentAction, type AdminRequestDetail,
+  addInternalNoteAction, claimRequestAction, getAdminDocumentUrlAction, linkRequestCycleAction, releaseRequestAction,
+  sendAdminMessageAction, setOfficialStageAction, startFormFillingAction, updateRequestStatusAction,
+  uploadConfirmationDocumentAction, type AdminActionResult, type AdminRequestDetail,
 } from "@/lib/actions/application-requests-admin";
-import { ASSISTANCE_LABEL, STATUS_LABEL, TERMINAL_STATUSES } from "@/lib/application-requests/constants";
+import { ASSISTANCE_LABEL, OFFICIAL_STAGE_LABEL, STATUS_LABEL, TERMINAL_STATUSES } from "@/lib/application-requests/constants";
 import { allowedAdminTargets } from "@/lib/application-requests/transitions";
+import { canAdvanceOfficialStage, isOfficiallySubmitted } from "@/lib/application-requests/official-stage";
+import { MANUAL_OFFICIAL_STAGES } from "@/lib/application-requests/schema";
+import { timelineLabel } from "@/lib/application-requests/timeline";
 
 const inputCls = "w-full rounded border border-hairline bg-paper-raised px-3.5 py-2.5 text-[15px] text-ink focus-visible:border-brand-600";
 
 export function AdminRequestDetailClient({ detail }: { detail: AdminRequestDetail }) {
   const router = useRouter();
-  const { request, events, documents } = detail;
-  const targets = allowedAdminTargets(request.status);
+  const { request, events, documents, assignment } = detail;
+  const targets = allowedAdminTargets(request.status, request.assistance_type);
   const closed = TERMINAL_STATUSES.includes(request.status);
 
   const [pending, startTransition] = useTransition();
@@ -29,20 +33,28 @@ export function AdminRequestDetailClient({ detail }: { detail: AdminRequestDetai
   const [reference, setReference] = useState(request.official_reference_number ?? "");
   const [note, setNote] = useState("");
   const [chat, setChat] = useState("");
+  const [warning, setWarning] = useState<string | null>(null);
+  const [cycleId, setCycleId] = useState("");
+  const [stage, setStage] = useState<(typeof MANUAL_OFFICIAL_STAGES)[number]>(
+    MANUAL_OFFICIAL_STAGES.find((st) => canAdvanceOfficialStage(request.official_stage, st)) ?? "admit_card",
+  );
+  const [stageMsg, setStageMsg] = useState("");
 
-  function run(fn: () => Promise<{ error?: string }>, ok: string, after?: () => void) {
+  function run(fn: () => Promise<AdminActionResult>, ok: string, after?: () => void) {
     setError(null);
     setNotice(null);
+    setWarning(null);
     startTransition(async () => {
       const res = await fn();
       if (res.error) { setError(res.error); return; }
       setNotice(ok);
+      if (res.warning) setWarning(res.warning);
       after?.();
       router.refresh();
     });
   }
 
-  const showRef = toStatus === "in_progress" || toStatus === "completed";
+  const showRef = toStatus === "in_progress" || toStatus === "awaiting_user_action" || toStatus === "submitted_on_portal" || toStatus === "completed";
 
   return (
     <div className="mt-3 space-y-5">
@@ -71,6 +83,39 @@ export function AdminRequestDetailClient({ detail }: { detail: AdminRequestDetai
         </dl>
       </Card>
 
+      <Card className="space-y-2 p-4">
+        <h2 className="text-base font-semibold text-ink">Assignment</h2>
+        <p className="text-sm text-ink-muted">
+          {assignment ? (assignment.mine ? "Assigned to you." : "Assigned to another admin.") : "Not assigned yet."}
+          {" "}Official stage: <strong>{OFFICIAL_STAGE_LABEL[request.official_stage]}</strong>
+          {request.cycle_label ? ` · Cycle: ${request.cycle_label}` : " · Not linked to an exam cycle"}
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {!assignment && <Button size="sm" isLoading={pending} disabled={pending} onClick={() => run(() => claimRequestAction(request.id), "Claimed ✓")}>Claim</Button>}
+          {assignment && !assignment.mine && (
+            <Button size="sm" variant="secondary" isLoading={pending} disabled={pending}
+              onClick={() => { if (window.confirm("Take this request over from the other admin?")) run(() => claimRequestAction(request.id, true), "Taken over ✓"); }}>Take over</Button>
+          )}
+          {assignment?.mine && <Button size="sm" variant="secondary" isLoading={pending} disabled={pending} onClick={() => run(() => releaseRequestAction(request.id), "Released ✓")}>Release</Button>}
+          {request.status === "in_progress" && request.assistance_type === "full_application" && (
+            <Button size="sm" variant="secondary" isLoading={pending} disabled={pending} onClick={() => run(() => startFormFillingAction(request.id), "Marked as started ✓")}>Mark form filling started</Button>
+          )}
+        </div>
+        {!closed && (
+          <form className="flex flex-wrap items-end gap-2" onSubmit={(e) => { e.preventDefault(); run(() => linkRequestCycleAction(request.id, cycleId.trim()), "Cycle linked ✓", () => setCycleId("")); }}>
+            <div className="min-w-0 flex-1">
+              <label htmlFor="cycle" className="block text-sm font-medium text-ink">Link to exam cycle (ID of a published cycle)</label>
+              <input id="cycle" value={cycleId} onChange={(e) => setCycleId(e.target.value)} className={inputCls} />
+            </div>
+            <Button type="submit" size="sm" variant="secondary" isLoading={pending} disabled={pending || !cycleId.trim()}>Link</Button>
+          </form>
+        )}
+        {request.official_application_url && (
+          <p className="text-sm"><span className="text-ink-faint">Official application link (entered by applicant — verify): </span>
+            <a className="break-all text-brand-700 underline" href={request.official_application_url} target="_blank" rel="noopener noreferrer">{request.official_application_url}</a></p>
+        )}
+      </Card>
+
       <Card className="p-4">
         <h2 className="text-base font-semibold text-ink">Documents</h2>
         {documents.length === 0 ? <p className="mt-2 text-sm text-ink-muted">No documents attached.</p> : (
@@ -84,7 +129,7 @@ export function AdminRequestDetailClient({ detail }: { detail: AdminRequestDetai
           </ul>
         )}
         <p className="mt-2 text-xs text-ink-faint">Links expire in 2 minutes. Each view is logged (who and when — never the content).</p>
-        {(request.status === "in_progress" || request.status === "completed") && (
+        {["in_progress", "awaiting_user_action", "submitted_on_portal", "completed"].includes(request.status) && (
           <form className="mt-3 flex flex-wrap items-center gap-2" onSubmit={(e) => {
             e.preventDefault();
             const form = e.currentTarget;
@@ -107,17 +152,17 @@ export function AdminRequestDetailClient({ detail }: { detail: AdminRequestDetai
             {targets.map((s) => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
           </select>
           <label htmlFor="msg" className="block text-sm font-medium text-ink">
-            Message to applicant {toStatus === "waiting_for_user" ? "(required — what is missing?)" : toStatus === "rejected" ? "(required — reason)" : "(optional)"}
+            Message to applicant {toStatus === "waiting_for_user" ? "(required — what is missing?)" : toStatus === "rejected" ? "(required — reason)" : toStatus === "form_filled" ? "(required — what to review and do next)" : toStatus === "awaiting_user_action" ? "(required — exactly what they must do)" : "(optional)"}
           </label>
           <textarea id="msg" rows={3} maxLength={2000} value={message} onChange={(e) => setMessage(e.target.value)} className={inputCls} />
           {showRef && (
             <>
               <label htmlFor="ref" className="block text-sm font-medium text-ink">Official reference number</label>
               <input id="ref" maxLength={100} value={reference} onChange={(e) => setReference(e.target.value)} className={inputCls} />
-              {toStatus === "completed" && (
+              {toStatus === "submitted_on_portal" && (
                 <p className="text-xs text-ink-muted">
-                  Completing requires a reference number or an uploaded confirmation document. Only mark completed once YOU
-                  have confirmed the official application was submitted.
+                  Requires a reference number or an uploaded confirmation document. Only mark this once YOU have verified the
+                  official application was submitted. &quot;Form filled&quot; is never the same as submitted.
                 </p>
               )}
             </>
@@ -131,6 +176,21 @@ export function AdminRequestDetailClient({ detail }: { detail: AdminRequestDetai
               "Status updated ✓", () => setMessage(""),
             )}>
             {pending ? "Saving…" : "Update status"}
+          </Button>
+        </Card>
+      )}
+
+      {isOfficiallySubmitted(request.status) && (
+        <Card className="space-y-3 p-4">
+          <h2 className="text-base font-semibold text-ink">Record an official exam stage</h2>
+          <p className="text-xs text-ink-muted">Only for an official public notice that monitoring has not picked up. Moves forward only.</p>
+          <select aria-label="Stage" value={stage} onChange={(e) => setStage(e.target.value as typeof stage)} className="h-11 w-full rounded border border-hairline bg-paper-raised px-3 text-[15px] text-ink">
+            {MANUAL_OFFICIAL_STAGES.filter((st) => canAdvanceOfficialStage(request.official_stage, st)).map((st) => <option key={st} value={st}>{OFFICIAL_STAGE_LABEL[st]}</option>)}
+          </select>
+          <textarea aria-label="Note" rows={2} maxLength={2000} value={stageMsg} onChange={(e) => setStageMsg(e.target.value)} className={inputCls} placeholder="Optional note (source of the notice)" />
+          <Button size="sm" isLoading={pending} disabled={pending}
+            onClick={() => run(() => setOfficialStageAction({ requestId: request.id, stage, message: stageMsg || undefined }), "Stage recorded ✓", () => setStageMsg(""))}>
+            Record stage
           </Button>
         </Card>
       )}
@@ -160,6 +220,7 @@ export function AdminRequestDetailClient({ detail }: { detail: AdminRequestDetai
 
       {error && <p className="text-sm text-ineligible-fg" role="alert">{error}</p>}
       {notice && <p className="text-sm text-eligible-fg" role="status">{notice}</p>}
+      {warning && <p className="rounded border border-hairline bg-paper-sunk p-3 text-sm text-ink" role="alert">⚠ {warning}</p>}
 
       <section className="space-y-2">
         <h2 className="text-base font-semibold text-ink">Audit history</h2>
@@ -168,7 +229,7 @@ export function AdminRequestDetailClient({ detail }: { detail: AdminRequestDetai
             <div key={ev.id} className="p-3 text-sm">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="font-medium text-ink">
-                  {ev.event_type.replace(/_/g, " ")}{ev.visibility === "internal" ? " (internal)" : ""}
+                  {timelineLabel(ev)}{ev.visibility === "internal" ? " (internal)" : ""}
                   {ev.from_status && ev.to_status ? ` · ${STATUS_LABEL[ev.from_status as keyof typeof STATUS_LABEL] ?? ev.from_status} → ${STATUS_LABEL[ev.to_status as keyof typeof STATUS_LABEL] ?? ev.to_status}` : ""}
                 </span>
                 <span className="text-xs text-ink-faint">{ev.actor_role} · {new Date(ev.created_at).toLocaleString()}</span>

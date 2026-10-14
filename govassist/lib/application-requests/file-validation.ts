@@ -30,3 +30,12 @@ export function validateUploadMeta(size: number, type: string): { error: string 
 export function safeFileName(name: string): string {
   return name.replace(/[^a-zA-Z0-9.\-_]/g, "_").slice(0, 100) || "file";
 }
+
+/** Detects the real type from the file's leading bytes (used for files copied
+ *  from the document vault, whose stored content-type isn't trusted). */
+export function sniffMime(bytes: Uint8Array): AllowedMime | null {
+  for (const mime of ALLOWED_UPLOAD_MIME) {
+    if (bytesMatchMime(bytes, mime)) return mime;
+  }
+  return null;
+}

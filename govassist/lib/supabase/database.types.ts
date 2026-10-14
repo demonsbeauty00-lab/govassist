@@ -692,7 +692,9 @@ export interface Database {
           details: string | null;
           consent_accepted_at: string;
           consent_version: string;
-          status: "submitted" | "under_review" | "waiting_for_user" | "in_progress" | "completed" | "rejected" | "cancelled";
+          status:
+            | "submitted" | "under_review" | "waiting_for_user" | "in_progress" | "form_filled"
+            | "awaiting_user_action" | "submitted_on_portal" | "completed" | "rejected" | "cancelled";
           latest_update: string | null;
           admin_message: string | null;
           official_reference_number: string | null;
@@ -700,6 +702,13 @@ export interface Database {
           purge_after: string | null;
           created_at: string;
           updated_at: string;
+          // 0017
+          exam_cycle_id: string | null;
+          cycle_label: string | null;
+          official_application_url: string | null;
+          official_stage: "not_submitted" | "submitted" | "admit_card" | "exam_completed" | "answer_key" | "result";
+          submitted_on_portal_at: string | null;
+          user_action_note: string | null;
         };
         Insert: Partial<Database["public"]["Tables"]["application_requests"]["Row"]> & {
           user_id: string; exam_title: string; exam_key: string; assistance_type: string;
@@ -735,17 +744,27 @@ export interface Database {
           event_type:
             | "submitted" | "status_changed" | "admin_message" | "info_requested" | "user_reply"
             | "internal_note" | "reference_added" | "confirmation_uploaded" | "document_added"
-            | "documents_deleted" | "cancelled_by_user" | "document_viewed";
+            | "documents_deleted" | "cancelled_by_user" | "document_viewed"
+            | "admin_claimed" | "form_filling_started" | "user_review_approved" | "user_changes_requested"
+            | "user_action_completed" | "official_update" | "cycle_linked" | "notification_failed";
           from_status: string | null;
           to_status: string | null;
           message: string | null;
           visibility: "user" | "internal";
           created_at: string;
+          // 0017
+          official_stage: "submitted" | "admit_card" | "exam_completed" | "answer_key" | "result" | "deadline" | "notice" | null;
+          dedupe_key: string | null;
         };
         Insert: Partial<Database["public"]["Tables"]["application_request_events"]["Row"]> & {
           request_id: string; actor_role: string; event_type: string;
         };
         Update: Partial<Database["public"]["Tables"]["application_request_events"]["Row"]>;
+      };
+      application_request_assignments: {
+        Row: { request_id: string; admin_id: string; assigned_at: string };
+        Insert: { request_id: string; admin_id: string; assigned_at?: string };
+        Update: Partial<Database["public"]["Tables"]["application_request_assignments"]["Row"]>;
       };
     };
   };

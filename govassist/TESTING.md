@@ -245,3 +245,10 @@ setup is that you don't need one:
 - Unit tests cover the pure source-monitoring logic only (`npm test`) — the
   DB-coupled parts need the manual checklist above, not automated tests, since they'd
   otherwise require a real Supabase test project this environment can't provide.
+
+## Phase 11 — manual RLS check
+
+The vitest suite uses a fake database, so it cannot prove Row Level Security.
+After applying migrations 0016 and 0017, run `supabase/tests/phase11_rls_check.sql`
+in the Supabase SQL editor (edit the two user ids at the top). It rolls back and
+changes nothing; the expected result of each query is written next to it.

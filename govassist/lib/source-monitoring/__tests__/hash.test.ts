@@ -16,7 +16,7 @@ describe("hashContent", () => {
 
   it("is insensitive to incidental whitespace/formatting drift, not just exact byte matches", () => {
     const a = hashContent("<html>\n  <body>Notice released</body>\n</html>");
-    const b = hashContent("<html><body>   Notice   released   </body></html>");
+    const b = hashContent("<html>\r\n\t<body>Notice    released</body>\n\n</html>");
     expect(a).toBe(b);
   });
 

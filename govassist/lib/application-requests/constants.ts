@@ -2,7 +2,8 @@
 // sync with the check constraints in 0016_application_requests.sql.
 
 export const REQUEST_STATUSES = [
-  "submitted", "under_review", "waiting_for_user", "in_progress", "completed", "rejected", "cancelled",
+  "submitted", "under_review", "waiting_for_user", "in_progress", "form_filled",
+  "awaiting_user_action", "submitted_on_portal", "completed", "rejected", "cancelled",
 ] as const;
 export type RequestStatus = (typeof REQUEST_STATUSES)[number];
 
@@ -10,13 +11,18 @@ export const STATUS_LABEL: Record<RequestStatus, string> = {
   submitted: "Submitted",
   under_review: "Under Review",
   waiting_for_user: "Waiting for You",
-  in_progress: "In Progress",
+  in_progress: "Accepted / In Progress",
+  form_filled: "Form Filled — Awaiting Your Review",
+  awaiting_user_action: "Awaiting Your Action",
+  submitted_on_portal: "Submitted on Official Portal",
   completed: "Completed",
   rejected: "Rejected",
   cancelled: "Cancelled",
 };
 
-export const ACTIVE_STATUSES: RequestStatus[] = ["submitted", "under_review", "waiting_for_user", "in_progress"];
+export const ACTIVE_STATUSES: RequestStatus[] = [
+  "submitted", "under_review", "waiting_for_user", "in_progress", "form_filled", "awaiting_user_action", "submitted_on_portal",
+];
 export const TERMINAL_STATUSES: RequestStatus[] = ["completed", "rejected", "cancelled"];
 
 export const ASSISTANCE_TYPES = ["full_application", "form_review", "document_check"] as const;
@@ -27,7 +33,29 @@ export const ASSISTANCE_LABEL: Record<AssistanceType, string> = {
   document_check: "Check my documents against the requirements",
 };
 
-export const CONSENT_VERSION = "2026-10-v1";
+/** Status of the OFFICIAL exam application — separate from the request status.
+ *  Only moves forward; "form filled" never sets it past not_submitted. */
+export const OFFICIAL_STAGES = ["not_submitted", "submitted", "admit_card", "exam_completed", "answer_key", "result"] as const;
+export type OfficialStage = (typeof OFFICIAL_STAGES)[number];
+export const OFFICIAL_STAGE_LABEL: Record<OfficialStage, string> = {
+  not_submitted: "Not submitted on the official portal",
+  submitted: "Official application submitted",
+  admit_card: "Admit card available",
+  exam_completed: "Exam completed",
+  answer_key: "Answer key available",
+  result: "Result declared",
+};
+
+/** Plain-language service terms shown before submission. No fee is charged
+ *  by this app — payment is not implemented, so none is shown or assumed. */
+export const SERVICE_TERMS = [
+  "An admin fills the official form manually using what you provide. GovAssist does not log in to portals automatically.",
+  "You must review the filled form and personally handle the declaration, any fee payment, OTP/CAPTCHA and the final submit.",
+  "Your application counts as submitted only after the admin records an official reference number or confirmation document.",
+  "No fee is collected through GovAssist. Any official application fee is paid by you on the official portal.",
+];
+
+export const CONSENT_VERSION = "2026-10-v2";
 export const CONSENT_TEXT =
   "I authorise a GovAssist administrator to view the details and documents I provide here, only to process this " +
   "request. I understand GovAssist will not know my official portal password, OTP or payment details and I must never " +

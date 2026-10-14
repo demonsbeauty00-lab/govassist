@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireUser } from "./session";
 import { createAdminClient } from "@/lib/supabase/admin";
+import type { createClient } from "@/lib/supabase/server";
 import { MISSING_SUPABASE_CONFIG_MESSAGE } from "@/lib/env";
 import { demoExamCycles } from "@/lib/mock-data";
 import type { Database } from "@/lib/supabase/database.types";
@@ -10,9 +11,12 @@ import {
   ACTIVE_STATUSES, CONSENT_VERSION, MAX_FILES_PER_REQUEST, RETENTION_DAYS, SIGNED_URL_SECONDS,
   TERMINAL_STATUSES, type RequestStatus,
 } from "@/lib/application-requests/constants";
-import { createRequestSchema, examKeyFor, userReplySchema } from "@/lib/application-requests/schema";
-import { canUserCancel, canUserReply } from "@/lib/application-requests/transitions";
-import { bytesMatchMime, safeFileName, validateUploadMeta } from "@/lib/application-requests/file-validation";
+import {
+  actionDoneSchema, createRequestSchema, examKeyFor, requestChangesSchema, userReplySchema,
+} from "@/lib/application-requests/schema";
+import { canUserCancel, canUserCompleteAction, canUserReply, canUserReviewForm } from "@/lib/application-requests/transitions";
+import { bytesMatchMime, safeFileName, sniffMime, validateUploadMeta } from "@/lib/application-requests/file-validation";
+import { MAX_FILE_BYTES } from "@/lib/application-requests/constants";
 import { isOwner } from "@/lib/application-requests/authz";
 import { applicantDeletableDocuments, interpretConditionalUpdate } from "@/lib/application-requests/workflow";
 import { ASSIST_PHONE_DISPLAY } from "@/lib/application-requests/contact";
@@ -72,6 +76,47 @@ async function readValidatedFiles(
   return { files };
 }
 
+interface UploadedItem { path: string; name: string; size: number; mime: "application/pdf" | "image/jpeg" | "image/png"; purpose: string }
+
+type UserSupabase = NonNullable<Awaited<ReturnType<typeof createClient>>>;
+
+/** Copies the applicant's own vault documents into the request folder. */
+async function copyVaultDocuments(
+  supabase: UserSupabase,
+  userId: string,
+  requestId: string,
+  ids: string[],
+): Promise<{ error: string } | { items: UploadedItem[] }> {
+  const unique = Array.from(new Set(ids));
+  // RLS + explicit user_id filter: only the caller's own documents can match.
+  const { data: docs } = await supabase
+    .from("documents").select("id, document_type, storage_path, file_name").in("id", unique).eq("user_id", userId);
+  const usable = (docs ?? []).filter((d) => !!d.storage_path);
+  if (usable.length !== unique.length) {
+    return { error: "One of the saved documents is no longer available. Remove it and try again." };
+  }
+  const items: UploadedItem[] = [];
+  const fail = async (error: string) => {
+    if (items.length) await supabase.storage.from(BUCKET).remove(items.map((i) => i.path));
+    return { error };
+  };
+  for (const d of usable) {
+    const { data: blob, error: dlErr } = await supabase.storage.from(BUCKET).download(d.storage_path as string);
+    if (dlErr || !blob) return fail("Couldn't read one of your saved documents. Please try again.");
+    if (blob.size <= 0 || blob.size > MAX_FILE_BYTES) {
+      return fail(`Each file must be under ${MAX_FILE_BYTES / (1024 * 1024)}MB. A saved document is too large to attach.`);
+    }
+    const mime = sniffMime(new Uint8Array(await blob.slice(0, 8).arrayBuffer()));
+    if (!mime) return fail("A saved document isn't a real PDF, JPG or PNG, so it can't be attached.");
+    const name = d.file_name ?? `${d.document_type}`;
+    const path = `${userId}/application-requests/${requestId}/${crypto.randomUUID()}-${safeFileName(name)}`;
+    const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, blob, { contentType: mime, upsert: false });
+    if (upErr) return fail("Couldn't attach a saved document. Please try again.");
+    items.push({ path, name, size: blob.size, mime, purpose: "From your saved documents" });
+  }
+  return { items };
+}
+
 export async function createApplicationRequestAction(formData: FormData): Promise<CreateRequestResult> {
   const auth = await requireUser();
   if (!auth.ok) return { error: MISSING_SUPABASE_CONFIG_MESSAGE };
@@ -82,6 +127,10 @@ export async function createApplicationRequestAction(formData: FormData): Promis
     customExamTitle: String(formData.get("customExamTitle") ?? ""),
     notificationUrl: String(formData.get("notificationUrl") ?? ""),
     applicationDeadline: String(formData.get("applicationDeadline") ?? ""),
+    officialApplicationUrl: String(formData.get("officialApplicationUrl") ?? ""),
+    cycleLabel: String(formData.get("cycleLabel") ?? ""),
+    examCycleId: String(formData.get("examCycleId") ?? ""),
+    vaultDocumentIds: formData.getAll("vaultDocumentIds").map(String).filter(Boolean),
     postApplied: String(formData.get("postApplied") ?? ""),
     assistanceType: String(formData.get("assistanceType") ?? ""),
     applicantName: String(formData.get("applicantName") ?? ""),
@@ -104,13 +153,32 @@ export async function createApplicationRequestAction(formData: FormData): Promis
   const notificationUrl = input.notificationUrl;
   const deadline = input.applicationDeadline;
   let examSlug: string | null = null;
-  if (input.examSlug) {
+  let examCycleId: string | null = null;
+  let cycleLabel: string | null = input.cycleLabel;
+  if (input.examCycleId) {
+    // A real, published exam cycle: the exam name, slug and cycle label all
+    // come from the database, never from the form, so the link is to the
+    // correct cycle (verified official updates are matched on this id).
+    const { data: cycle } = await supabase
+      .from("exam_cycles").select("id, exam_id, cycle_label, status").eq("id", input.examCycleId).maybeSingle();
+    if (!cycle || cycle.status !== "published") {
+      return { error: "That exam cycle isn't available.", fieldErrors: { examCycleId: "Choose a listed cycle." } };
+    }
+    const { data: exam } = await supabase.from("exams").select("slug, short_name").eq("id", cycle.exam_id).maybeSingle();
+    if (!exam) return { error: "That exam cycle isn't available.", fieldErrors: { examCycleId: "Choose a listed cycle." } };
+    examCycleId = cycle.id;
+    cycleLabel = cycle.cycle_label;
+    examSlug = exam.slug;
+    examTitle = exam.short_name;
+  } else if (input.examSlug) {
     const exam = demoExamCycles.find((e) => e.id === input.examSlug);
     if (!exam) return { error: "That exam isn't available.", fieldErrors: { examSlug: "Choose a listed exam." } };
     // The catalogue is DEMO/sample data (see lib/mock-data.ts), so only the
     // exam NAME is taken from it. Its dates and URLs are never copied into a
     // real request; the notification link and deadline stay exactly what the
-    // applicant entered (or empty) for the admin to verify.
+    // applicant entered (or empty) for the admin to verify. Such a request is
+    // NOT linked to a cycle, so it receives no automatic official updates
+    // until an admin links the correct cycle.
     examSlug = exam.id;
     examTitle = exam.shortName;
   }
@@ -118,6 +186,14 @@ export async function createApplicationRequestAction(formData: FormData): Promis
 
   const filesResult = await readValidatedFiles(formData, MAX_FILES_PER_REQUEST);
   if ("error" in filesResult) return { error: filesResult.error, fieldErrors: { files: filesResult.error } };
+  if (filesResult.files.length + input.vaultDocumentIds.length > MAX_FILES_PER_REQUEST) {
+    const msg = `You can attach at most ${MAX_FILES_PER_REQUEST} files in total (uploads + saved documents).`;
+    return { error: msg, fieldErrors: { files: msg } };
+  }
+  if (input.assistanceType === "document_check" && filesResult.files.length + input.vaultDocumentIds.length === 0) {
+    const msg = "A document check needs at least one document — upload one or pick a saved document.";
+    return { error: msg, fieldErrors: { files: msg } };
+  }
 
   // Duplicate protection #1 (friendly message). #2 is the partial unique
   // index in the database, which also covers two simultaneous clicks.
@@ -134,15 +210,30 @@ export async function createApplicationRequestAction(formData: FormData): Promis
   }
 
   const requestId = crypto.randomUUID();
-  const uploaded: { path: string; file: File; mime: "application/pdf" | "image/jpeg" | "image/png" }[] = [];
+  const uploaded: UploadedItem[] = [];
+  const cleanupUploads = () =>
+    uploaded.length ? supabase.storage.from(BUCKET).remove(uploaded.map((u) => u.path)) : Promise.resolve();
+
   for (const { file, mime } of filesResult.files) {
     const path = `${user.id}/application-requests/${requestId}/${crypto.randomUUID()}-${safeFileName(file.name)}`;
     const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, file, { contentType: mime, upsert: false });
     if (upErr) {
-      if (uploaded.length) await supabase.storage.from(BUCKET).remove(uploaded.map((u) => u.path));
+      await cleanupUploads();
       return { error: "Couldn't upload a file. Please try again." };
     }
-    uploaded.push({ path, file, mime });
+    uploaded.push({ path, name: file.name, size: file.size, mime, purpose: "Supporting document for this request" });
+  }
+
+  // Reuse documents the applicant already keeps in their private vault: the
+  // file is copied (never shared by path) into this request's own folder,
+  // after an ownership check and the same size / real-type validation.
+  if (input.vaultDocumentIds.length > 0) {
+    const copied = await copyVaultDocuments(supabase, user.id, requestId, input.vaultDocumentIds);
+    if ("error" in copied) {
+      await cleanupUploads();
+      return { error: copied.error, fieldErrors: { vaultDocumentIds: copied.error } };
+    }
+    uploaded.push(...copied.items);
   }
 
   const { error: insertErr } = await supabase.from("application_requests").insert({
@@ -152,6 +243,9 @@ export async function createApplicationRequestAction(formData: FormData): Promis
     exam_title: examTitle,
     exam_key: examKey,
     notification_url: notificationUrl,
+    official_application_url: input.officialApplicationUrl,
+    exam_cycle_id: examCycleId,
+    cycle_label: cycleLabel,
     application_deadline: deadline,
     post_applied: input.postApplied,
     assistance_type: input.assistanceType,
@@ -163,7 +257,7 @@ export async function createApplicationRequestAction(formData: FormData): Promis
     latest_update: "Request submitted. An admin will review it soon.",
   });
   if (insertErr) {
-    if (uploaded.length) await supabase.storage.from(BUCKET).remove(uploaded.map((u) => u.path));
+    await cleanupUploads();
     if (insertErr.code === "23505" && insertErr.message.includes("uq_application_requests_active")) {
       return { error: "You already have an open request for this exam and assistance type." };
     }
@@ -175,15 +269,15 @@ export async function createApplicationRequestAction(formData: FormData): Promis
       uploaded.map((u) => ({
         request_id: requestId,
         user_id: user.id,
-        file_name: u.file.name.slice(0, 255),
+        file_name: u.name.slice(0, 255),
         mime_type: u.mime,
-        size_bytes: u.file.size,
+        size_bytes: u.size,
         storage_path: u.path,
-        purpose: "Supporting document for this request",
+        purpose: u.purpose,
       })),
     );
     if (docErr) {
-      await supabase.storage.from(BUCKET).remove(uploaded.map((u) => u.path));
+      await cleanupUploads();
       await supabase.from("application_request_events").insert({
         request_id: requestId, actor_id: user.id, actor_role: "user", event_type: "submitted",
         message: "Request submitted, but the attached files could not be saved. Please re-attach them in a reply.",
@@ -460,6 +554,148 @@ export async function deleteMyRequestDocumentsAction(requestId: string): Promise
   });
   if (evErr) console.error("application_requests: documents_deleted audit insert failed", evErr.code);
 
+  revalidateRequests(request.id);
+  return {};
+}
+
+// ---------------------------------------------------------------------------
+// Phase 11 — applicant steps in the manual form-filling workflow.
+// Users have no UPDATE policy, so each narrow change runs with the service
+// role AFTER ownership + current-status checks, as a conditional update with
+// an audit event and a compensating revert if the event can't be written.
+// ---------------------------------------------------------------------------
+
+async function applicantTransition(args: {
+  admin: NonNullable<ReturnType<typeof tryAdminClient>>;
+  userId: string;
+  request: RequestRow;
+  to: RequestStatus;
+  latestUpdate: string;
+  eventType: "user_review_approved" | "user_changes_requested" | "user_action_completed";
+  message: string | null;
+}): Promise<{ error?: string }> {
+  const { admin, userId, request, to } = args;
+  const { data: changed, error } = await admin
+    .from("application_requests")
+    .update({ status: to, latest_update: args.latestUpdate, updated_at: new Date().toISOString() })
+    .eq("id", request.id).eq("user_id", userId).eq("status", request.status)
+    .select("id");
+  const outcome = interpretConditionalUpdate(changed, error);
+  if (outcome === "conflict") return { error: "This request was just updated. Refresh to see its latest status." };
+  if (outcome === "error") return { error: "Couldn't save that. Please try again." };
+
+  const { error: evErr } = await admin.from("application_request_events").insert({
+    request_id: request.id, actor_id: userId, actor_role: "user", event_type: args.eventType,
+    from_status: request.status, to_status: to, message: args.message,
+  });
+  if (evErr) {
+    await admin.from("application_requests")
+      .update({ status: request.status, latest_update: request.latest_update, updated_at: request.updated_at })
+      .eq("id", request.id).eq("status", to);
+    return { error: "Couldn't save that. Please try again." };
+  }
+  return {};
+}
+
+/** Applicant reviewed the filled form and is happy: now THEY handle the
+ *  declaration / payment / OTP / CAPTCHA / final submit on the official portal. */
+export async function approveFilledFormAction(requestId: string): Promise<{ error?: string }> {
+  const loaded = await loadOwnedRequest(requestId);
+  if (!loaded.ok) return { error: loaded.error };
+  const { user, request } = loaded;
+  if (!canUserReviewForm(request.status)) return { error: "This request isn't waiting for your review." };
+  const admin = tryAdminClient();
+  if (!admin) return { error: UNAVAILABLE };
+
+  const res = await applicantTransition({
+    admin, userId: user.id, request, to: "awaiting_user_action",
+    latestUpdate: "You approved the filled form. Complete the remaining steps on the official portal yourself, then tell us here.",
+    eventType: "user_review_approved", message: null,
+  });
+  if (!res.error) revalidateRequests(request.id);
+  return res;
+}
+
+export async function requestFormChangesAction(requestId: string, message: string): Promise<{ error?: string }> {
+  const parsed = requestChangesSchema.safeParse({ requestId, message });
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Describe the change you need." };
+  const loaded = await loadOwnedRequest(parsed.data.requestId);
+  if (!loaded.ok) return { error: loaded.error };
+  const { user, request } = loaded;
+  if (!canUserReviewForm(request.status)) return { error: "This request isn't waiting for your review." };
+  const admin = tryAdminClient();
+  if (!admin) return { error: UNAVAILABLE };
+
+  const res = await applicantTransition({
+    admin, userId: user.id, request, to: "in_progress",
+    latestUpdate: "You asked for changes to the filled form.",
+    eventType: "user_changes_requested", message: parsed.data.message,
+  });
+  if (!res.error) revalidateRequests(request.id);
+  return res;
+}
+
+/** "I completed my step." Never marks the application submitted: it returns
+ *  the request to the admin, who records the official submission only after
+ *  a reference number or confirmation document is provided/verified. Any
+ *  reference the applicant types is stored in the history as REPORTED. */
+export async function completeMyActionAction(formData: FormData): Promise<{ error?: string }> {
+  const parsed = actionDoneSchema.safeParse({
+    requestId: String(formData.get("requestId") ?? ""),
+    message: String(formData.get("message") ?? ""),
+    reportedReference: String(formData.get("reportedReference") ?? ""),
+  });
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input." };
+  const loaded = await loadOwnedRequest(parsed.data.requestId);
+  if (!loaded.ok) return { error: loaded.error };
+  const { supabase, user, request } = loaded;
+  if (!canUserCompleteAction(request.status)) return { error: "This request isn't waiting for your action." };
+  const admin = tryAdminClient();
+  if (!admin) return { error: UNAVAILABLE };
+
+  const filesResult = await readValidatedFiles(formData, MAX_FILES_PER_REQUEST);
+  if ("error" in filesResult) return { error: filesResult.error };
+
+  const uploaded: UploadedItem[] = [];
+  for (const { file, mime } of filesResult.files) {
+    const path = `${user.id}/application-requests/${request.id}/${crypto.randomUUID()}-${safeFileName(file.name)}`;
+    const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, file, { contentType: mime, upsert: false });
+    if (upErr) {
+      if (uploaded.length) await supabase.storage.from(BUCKET).remove(uploaded.map((u) => u.path));
+      return { error: "Couldn't upload a file. Please try again." };
+    }
+    uploaded.push({ path, name: file.name, size: file.size, mime, purpose: "Added when you completed your step" });
+  }
+  let docIds: string[] = [];
+  const undoFiles = async () => {
+    if (docIds.length) await admin.from("application_request_documents").delete().in("id", docIds);
+    if (uploaded.length) await supabase.storage.from(BUCKET).remove(uploaded.map((u) => u.path));
+  };
+  if (uploaded.length) {
+    const { data: rows, error: docErr } = await supabase.from("application_request_documents").insert(
+      uploaded.map((u) => ({
+        request_id: request.id, user_id: user.id, file_name: u.name.slice(0, 255), mime_type: u.mime,
+        size_bytes: u.size, storage_path: u.path, purpose: u.purpose,
+      })),
+    ).select("id");
+    if (docErr || !rows) {
+      await supabase.storage.from(BUCKET).remove(uploaded.map((u) => u.path));
+      return { error: "Couldn't save your files. Please try again." };
+    }
+    docIds = rows.map((d: { id: string }) => d.id);
+  }
+
+  const parts = [parsed.data.message, parsed.data.reportedReference ? `Reference number reported by you (not yet verified): ${parsed.data.reportedReference}` : null]
+    .filter((p): p is string => !!p);
+  const res = await applicantTransition({
+    admin, userId: user.id, request, to: "in_progress",
+    latestUpdate: "You said you completed your step. An admin will verify and record the official confirmation.",
+    eventType: "user_action_completed", message: parts.length ? parts.join("\n") : null,
+  });
+  if (res.error) {
+    await undoFiles();
+    return res;
+  }
   revalidateRequests(request.id);
   return {};
 }
