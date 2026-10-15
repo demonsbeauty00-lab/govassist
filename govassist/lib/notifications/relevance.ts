@@ -36,11 +36,13 @@ export function notificationTypeForUpdate(updateType: UpdateType): NotificationT
     case "application_end_date_change":
       return "deadline";
     case "admit_card":
+    case "exam_city_intimation":
       return "admit_card";
     case "result":
     case "answer_key":
     case "response_sheet":
     case "cutoff":
+    case "scorecard":
       return "result";
     default:
       return "system";

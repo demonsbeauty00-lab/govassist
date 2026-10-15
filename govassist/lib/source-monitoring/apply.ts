@@ -2,66 +2,19 @@ import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { Database } from "@/lib/supabase/database.types";
 import { notifyRelevantUsers } from "./notify-relevant";
+import { refreshCycleEligibility } from "@/lib/eligibility/reevaluate";
 import { syncRequestsForOfficialUpdate } from "@/lib/application-requests/official-sync";
+import { buildExamCycleUpdate } from "./stage/cycle-patch";
+import { buildNotificationBody, noticeTitle } from "./stage/labels";
+import { publishStageUpdate, supabaseStageStore, type PublishResult } from "./stage/publish";
 
 type DetectedUpdateRow = Database["public"]["Tables"]["detected_updates"]["Row"];
-type ExamCyclesUpdate = Database["public"]["Tables"]["exam_cycles"]["Update"];
 
-const NOTIFICATION_TITLES: Record<DetectedUpdateRow["update_type"], (examName: string) => string> = {
-  new_notification: (n) => `${n} — new notification released`,
-  corrigendum: (n) => `${n} — corrigendum released`,
-  application_start_date: (n) => `${n} — applications are now open`,
-  application_end_date_change: (n) => `${n} — application deadline changed`,
-  exam_date: (n) => `${n} — exam date announced`,
-  admit_card: (n) => `${n} admit card is now available`,
-  answer_key: (n) => `${n} answer key has been released`,
-  response_sheet: (n) => `${n} — response sheet available`,
-  objection_window: (n) => `${n} — objection window is open`,
-  result: (n) => `${n} result has been declared`,
-  cutoff: (n) => `${n} — official cutoffs published`,
-  other: (n) => `${n} — official update`,
-};
-
-/** Maps a detected update's type + extracted fields onto the specific
- *  exam_cycles columns it should change. Only touches what that update
- *  type genuinely represents — a corrigendum notification never silently
- *  changes an age limit, for instance. */
-function buildExamCycleUpdate(update: DetectedUpdateRow): ExamCyclesUpdate {
-  const fields = new Map(update.extracted_fields.map((f) => [f.label, f.value]));
-
-  switch (update.update_type) {
-    case "application_start_date":
-      return update.publication_date ? { application_start_date: update.publication_date } : {};
-    case "application_end_date_change":
-      return update.publication_date ? { application_end_date: update.publication_date } : {};
-    case "admit_card":
-      return {
-        admit_card_date: update.publication_date,
-        admit_card_url: update.document_url,
-        current_status: "admit_card_available",
-      };
-    case "answer_key":
-      return {
-        answer_key_date: update.publication_date,
-        answer_key_url: update.document_url,
-        current_status: "answer_key_available",
-      };
-    case "result":
-      return {
-        result_date: update.publication_date,
-        result_url: update.document_url,
-        current_status: "result_declared",
-      };
-    case "objection_window":
-      return { current_status: "objection_window_open" };
-    case "cutoff":
-      return { cutoff_summary: fields.get("Cutoff") ?? update.title };
-    default:
-      // corrigendum / exam_date / response_sheet / other / new_notification:
-      // informational — the notification itself is the value; no single
-      // column captures "a corrigendum was issued" without risking
-      // overwriting something more specific than the notice actually said.
-      return {};
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return url;
   }
 }
 
@@ -86,29 +39,66 @@ export async function applyDetectedUpdate(updateId: string, reviewedBy: string |
   let examSlug: string | null = null;
   let examCategory: string | null = null;
   let examState: string | null = null;
+  let organization = hostOf(update.official_url);
+
+  let stage: PublishResult | null = null;
 
   if (update.exam_cycle_id) {
-    const cyclePatch = buildExamCycleUpdate(update);
-    if (Object.keys(cyclePatch).length > 0) {
-      const { error: patchError } = await supabase
-        .from("exam_cycles")
-        .update({ ...cyclePatch, updated_at: now })
-        .eq("id", update.exam_cycle_id);
-      if (patchError) return { error: patchError.message };
-    }
-
     const { data: cycle } = await supabase
       .from("exam_cycles")
-      .select("exam_id")
+      .select("exam_id, current_status")
       .eq("id", update.exam_cycle_id)
       .maybeSingle();
+
+    let recruitingBody: string | null = null;
     if (cycle) {
-      const { data: exam } = await supabase.from("exams").select("slug, short_name, category, state").eq("id", cycle.exam_id).maybeSingle();
+      const { data: exam } = await supabase
+        .from("exams")
+        .select("slug, short_name, category, state, recruiting_body")
+        .eq("id", cycle.exam_id)
+        .maybeSingle();
       if (exam) {
         examSlug = exam.slug;
         examName = exam.short_name;
         examCategory = exam.category;
         examState = exam.state;
+        recruitingBody = exam.recruiting_body;
+      }
+    }
+
+    // Phase 13: record the verified document in the user-facing history table
+    // first. A duplicate or a late-arriving OLDER document must never overwrite
+    // the cycle's current data, so the cycle patch below depends on this result.
+    const { data: source } = await supabase.from("notification_sources").select("organization").eq("id", update.source_id).maybeSingle();
+    organization = source?.organization || recruitingBody || hostOf(update.official_url);
+
+    stage = await publishStageUpdate({
+      store: supabaseStageStore(supabase),
+      update,
+      organization,
+      verification: reviewedBy ? "admin_verified" : "auto_verified",
+    });
+    if (!stage.ok) return { error: stage.error ?? "Could not record the official update." };
+
+    if (stage.supersededIds.length > 0) {
+      await supabase.from("source_audit_log").insert({
+        source_id: update.source_id,
+        detected_update_id: update.id,
+        event_type: "superseded",
+        new_value: { superseded_stage_update_ids: stage.supersededIds, version: stage.version },
+        detected_at: now,
+      });
+    }
+
+    const patchApplies = stage.isLatest && (stage.action === "new" || stage.action === "supersede" || stage.action === "already");
+    if (patchApplies) {
+      const cyclePatch = buildExamCycleUpdate(update, cycle?.current_status ?? null);
+      if (Object.keys(cyclePatch).length > 0) {
+        const { error: patchError } = await supabase
+          .from("exam_cycles")
+          .update({ ...cyclePatch, updated_at: now })
+          .eq("id", update.exam_cycle_id);
+        if (patchError) return { error: patchError.message };
       }
     }
   }
@@ -137,7 +127,10 @@ export async function applyDetectedUpdate(updateId: string, reviewedBy: string |
   // Phase 8: targeted fan-out (applied → saved → opted-in eligible) instead
   // of saved-only. Runs when there's anything to target by — an exam slug
   // (saved users) and/or a linked cycle (applied / eligible users).
-  if (examSlug || update.exam_cycle_id) {
+  // A duplicate document, or an older one that arrived late, carries no new
+  // information for anyone - recorded above, but nobody is alerted again.
+  const quiet = stage?.action === "duplicate" || stage?.action === "historical";
+  if (!quiet && (examSlug || update.exam_cycle_id)) {
     await notifyRelevantUsers({
       updateId: update.id,
       updateType: update.update_type,
@@ -145,8 +138,17 @@ export async function applyDetectedUpdate(updateId: string, reviewedBy: string |
       examSlug,
       examCategory,
       examState,
-      title: NOTIFICATION_TITLES[update.update_type as keyof typeof NOTIFICATION_TITLES](examName),
-      body: `Source: Official ${update.official_url.includes("http") ? new URL(update.official_url).hostname : update.official_url}. ${update.title}`,
+      title: noticeTitle(update.update_type, examName, stage?.action === "supersede"),
+      body: buildNotificationBody({
+        organization,
+        publicationDate: update.publication_date,
+        sourceUrl: update.document_url ?? update.official_url,
+        title: update.title,
+      }),
+      organization,
+      sourceUrl: update.document_url ?? update.official_url,
+      publishedOn: update.publication_date,
+      stageUpdateId: stage?.stageUpdateId ?? null,
     });
   }
 
@@ -165,6 +167,11 @@ export async function applyDetectedUpdate(updateId: string, reviewedBy: string |
       console.error("apply: application-request sync failed", e instanceof Error ? e.message : "unknown");
     }
   }
+
+  // Phase 12: re-run the existing eligibility engine for this cycle. A cycle
+  // whose rules/corrigendum state didn't change is skipped (fingerprint), so
+  // this is cheap for admit-card/result updates. Never fails the update.
+  if (update.exam_cycle_id) await refreshCycleEligibility(update.exam_cycle_id);
 
   return {};
 }

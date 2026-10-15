@@ -252,3 +252,14 @@ The vitest suite uses a fake database, so it cannot prove Row Level Security.
 After applying migrations 0016 and 0017, run `supabase/tests/phase11_rls_check.sql`
 in the Supabase SQL editor (edit the two user ids at the top). It rolls back and
 changes nothing; the expected result of each query is written next to it.
+
+## Phase 13 — exam stage intelligence
+
+- New pure logic lives in `lib/source-monitoring/stage/` with tests in its
+  `__tests__` folder (stage detection, explicit-date reading, cycle matching,
+  versioning/duplicates, validation, cycle patching, publish history with an
+  in-memory store) plus `lib/stage-updates/__tests__/present.test.ts`. Run with `npm test`.
+- RLS cannot be proven by vitest. After applying migration 0019, run
+  `supabase/tests/phase13_rls_check.sql` in the Supabase SQL editor (edit the ids).
+- Live official websites are NOT tested: the only parser in the repo is a template.
+  A real source needs a real, fixture-tested parser before it is enabled.

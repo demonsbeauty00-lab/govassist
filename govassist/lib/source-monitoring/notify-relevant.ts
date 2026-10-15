@@ -29,6 +29,11 @@ export interface NotifyRelevantParams {
   examState: string | null;
   title: string;
   body: string;
+  /** Phase 13: official provenance stored on each notification. */
+  organization?: string | null;
+  sourceUrl?: string | null;
+  publishedOn?: string | null;
+  stageUpdateId?: string | null;
 }
 
 /**
@@ -143,6 +148,10 @@ export async function notifyRelevantUsers(params: NotifyRelevantParams): Promise
     body: `${params.body} ${reasonLine(r.reason)}`,
     type,
     dedupe_key: `update:${params.updateId}`,
+    organization: params.organization ?? null,
+    source_url: params.sourceUrl ?? null,
+    published_on: params.publishedOn ?? null,
+    stage_update_id: params.stageUpdateId ?? null,
   }));
 
   // ignoreDuplicates + the (user_id, dedupe_key) unique index (0013): a

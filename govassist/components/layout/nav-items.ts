@@ -27,6 +27,7 @@ export interface NavItem {
 export const NAV_ITEMS: NavItem[] = [
   { href: "/home", label: "Dashboard", icon: HomeIcon },
   { href: "/notifications", label: "Notifications", icon: BellIcon },
+  { href: "/discover", label: "Exam Discovery", icon: ExamsIcon },
   { href: "/jobs", label: "Eligibility Check", icon: CheckCircleIcon },
   { href: "/apply-assistant", label: "Application Requests", icon: UploadIcon },
   { href: "/preparation", label: "Mock Tests", icon: PreparationIcon },

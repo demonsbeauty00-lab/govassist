@@ -14,6 +14,8 @@ import { ExamCycle } from "@/lib/types";
 import { EXAM_CATEGORY_OPTIONS } from "@/lib/constants";
 import { DashboardSummary } from "@/lib/actions/dashboard";
 import { PersonalizedDashboard } from "@/lib/dashboard/personalized";
+import { OfficialUpdatesList } from "@/components/updates/OfficialUpdatesList";
+import type { CycleUpdateGroup } from "@/lib/stage-updates/present";
 
 interface HomeStats {
   potentiallyEligible: number;
@@ -31,6 +33,8 @@ interface HomeContentProps {
   summary: DashboardSummary;
   totalExamsCovered: number;
   personalized: PersonalizedDashboard;
+  /** Real, verified official stage updates for followed exams (optional). */
+  officialUpdates?: CycleUpdateGroup[];
 }
 
 // Colors deliberately reuse Tailwind's built-in palette (purple/pink/cyan
@@ -49,7 +53,7 @@ const QUICK_ACTIONS = [
 // we don't have (there's no real "category color" field in the schema).
 const CATEGORY_TONES = ["bg-pink-50 text-pink-600", "bg-brand-50 text-brand-700", "bg-amber-50 text-amber-700", "bg-cyan-50 text-cyan-700", "bg-eligible-bg text-eligible-fg", "bg-ineligible-bg text-ineligible-fg", "bg-purple-50 text-purple-600"];
 
-export function HomeContent({ firstName, completionPercent, stats, latestExams, savedSlugs, summary, totalExamsCovered, personalized }: HomeContentProps) {
+export function HomeContent({ firstName, completionPercent, stats, latestExams, savedSlugs, summary, totalExamsCovered, personalized, officialUpdates }: HomeContentProps) {
   const greetingHour = new Date().getHours();
   const greeting = greetingHour < 12 ? "Good morning" : greetingHour < 17 ? "Good afternoon" : "Good evening";
 
@@ -93,6 +97,20 @@ export function HomeContent({ firstName, completionPercent, stats, latestExams, 
       <div className="mt-3">
         <PersonalizedSections data={personalized} />
       </div>
+
+      {officialUpdates && officialUpdates.length > 0 && (
+        <section className="mt-6" aria-label="Official updates">
+          <div className="flex items-center justify-between">
+            <h2 className="text-[15px] font-semibold text-ink">Official updates for your exams</h2>
+            <Link href="/updates" className="text-sm font-medium text-brand-600">
+              View all
+            </Link>
+          </div>
+          <div className="mt-3">
+            <OfficialUpdatesList groups={officialUpdates.slice(0, 2)} />
+          </div>
+        </section>
+      )}
 
       <div className="mt-6 md:grid md:grid-cols-3 md:gap-5">
         <div className="md:col-span-2">

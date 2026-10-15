@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getDueSources, checkSource } from "@/lib/source-monitoring/checker";
 import { sweepRealDeadlineReminders } from "@/lib/source-monitoring/deadline-reminders";
+import { sweepEligibility } from "@/lib/eligibility/reevaluate";
 
 // Uses Node's crypto module (via lib/source-monitoring/fetch.ts) and may
 // fetch several external sources in one run — the Node runtime, not Edge,
@@ -53,7 +54,18 @@ export async function GET(request: Request) {
   // and one cron job is friendlier to Hobby-plan cron limits than two.
   const { remindersSent } = await sweepRealDeadlineReminders();
 
+  // Phase 12: re-evaluate exam cycles that are new or whose rules changed
+  // since the last run (covers cycles added or edited outside the pipeline).
+  // Failure here must not hide the source-check results above.
+  let eligibility: { cyclesChecked: number; cyclesReevaluated: number; failed: number } | { error: string };
+  try {
+    eligibility = await sweepEligibility();
+  } catch {
+    eligibility = { error: "eligibility sweep failed" };
+  }
+
   return NextResponse.json({
+    eligibility,
     checked: results.length,
     changed: results.filter((r) => r.changed).length,
     updatesDetected: results.reduce((sum, r) => sum + r.updatesDetected, 0),

@@ -3,6 +3,7 @@ import { ConfigErrorScreen } from "@/components/ConfigErrorScreen";
 import { DemoBanner } from "@/components/ui/DemoBanner";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
+import { EligibilityBreakdown } from "@/components/eligibility/EligibilityBreakdown";
 import { EligibilityPill } from "@/components/ui/EligibilityPill";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { NotificationStatusBadge } from "@/components/exams/NotificationStatusBadge";
@@ -37,8 +38,6 @@ export default async function JobDetailsPage({ params }: { params: { id: string 
 
   const applicant = profileToApplicant(profileResult.profile, profileResult.education);
   const eligibility = evaluateEligibility(applicant, exam.rules);
-  const whyEligible = eligibility.checks.filter((c) => c.status === "pass");
-  const whatIsMissing = eligibility.checks.filter((c) => c.status !== "pass");
   const notificationStatus = computeNotificationStatus(exam);
   const isSaved = (profileResult.profile?.saved_exam_slugs ?? []).includes(exam.id);
 
@@ -71,41 +70,7 @@ export default async function JobDetailsPage({ params }: { params: { id: string 
           )}
         </div>
 
-        {whyEligible.length > 0 && (
-          <Card className="space-y-2 p-4">
-            <p className="text-sm font-semibold text-ink">Why am I eligible?</p>
-            <ul className="space-y-2">
-              {whyEligible.map((c) => (
-                <li key={c.label} className="flex gap-2 text-sm">
-                  <span className="text-eligible-fg">✓</span>
-                  <span className="text-ink-muted">
-                    <span className="font-medium text-ink">{c.label}: </span>
-                    {c.explanation}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </Card>
-        )}
-
-        {whatIsMissing.length > 0 && (
-          <Card className="space-y-2 p-4">
-            <p className="text-sm font-semibold text-ink">What is missing?</p>
-            <ul className="space-y-2">
-              {whatIsMissing.map((c) => (
-                <li key={c.label} className="flex gap-2 text-sm">
-                  <span className={c.status === "fail" ? "text-ineligible-fg" : "text-caution-fg"}>
-                    {c.status === "fail" ? "✕" : "?"}
-                  </span>
-                  <span className="text-ink-muted">
-                    <span className="font-medium text-ink">{c.label}: </span>
-                    {c.explanation}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </Card>
-        )}
+        <EligibilityBreakdown checks={eligibility.checks} />
 
         <Card className="border-brand-300 bg-brand-50 p-4">
           <p className="text-sm text-brand-700">{eligibility.disclaimer}</p>

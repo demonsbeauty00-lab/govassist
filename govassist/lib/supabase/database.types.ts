@@ -176,6 +176,12 @@ export interface Database {
           admit_card_url: string | null;
           answer_key_url: string | null;
           result_url: string | null;
+          // Phase 13 (0019)
+          exam_date: string | null;
+          exam_date_end: string | null;
+          exam_city_intimation_url: string | null;
+          response_sheet_url: string | null;
+          scorecard_url: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -230,11 +236,16 @@ export interface Database {
           update_type:
             | "new_notification" | "corrigendum" | "application_start_date" | "application_end_date_change"
             | "exam_date" | "admit_card" | "answer_key" | "response_sheet" | "objection_window"
-            | "result" | "cutoff" | "other";
+            | "result" | "cutoff" | "other" | "exam_city_intimation" | "scorecard";
           title: string;
           official_url: string;
           document_url: string | null;
           publication_date: string | null;
+          // Phase 13 (0019)
+          event_date: string | null;
+          cycle_match: "cycle_label" | "exam_name" | "single_candidate" | "manual" | null;
+          series_key: string | null;
+          is_revision: boolean;
           content_hash: string;
           extracted_fields: { label: string; value: string; confidence: "high" | "medium" | "low" }[];
           classification: "auto_publish" | "needs_review" | "reject";
@@ -256,7 +267,7 @@ export interface Database {
           id: string;
           source_id: string | null;
           detected_update_id: string | null;
-          event_type: "checked" | "check_succeeded" | "check_failed" | "change_detected" | "duplicate_skipped" | "published" | "reviewed";
+          event_type: "checked" | "check_succeeded" | "check_failed" | "change_detected" | "duplicate_skipped" | "published" | "reviewed" | "superseded" | "cycle_unmatched";
           previous_value: unknown;
           new_value: unknown;
           processing_status: string | null;
@@ -268,6 +279,32 @@ export interface Database {
         };
         Insert: Partial<Database["public"]["Tables"]["source_audit_log"]["Row"]> & { event_type: string };
         Update: Partial<Database["public"]["Tables"]["source_audit_log"]["Row"]>;
+      };
+      exam_stage_updates: {
+        Row: {
+          id: string;
+          exam_cycle_id: string;
+          detected_update_id: string | null;
+          update_type: Database["public"]["Tables"]["detected_updates"]["Row"]["update_type"];
+          title: string;
+          organization: string;
+          publication_date: string | null;
+          event_date: string | null;
+          source_url: string;
+          official_page_url: string;
+          series_key: string;
+          document_key: string;
+          version: number;
+          is_latest: boolean;
+          superseded_by: string | null;
+          verification: "auto_verified" | "admin_verified";
+          published_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["exam_stage_updates"]["Row"]> & {
+          exam_cycle_id: string; update_type: string; title: string; organization: string;
+          source_url: string; official_page_url: string; series_key: string; document_key: string; verification: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["exam_stage_updates"]["Row"]>;
       };
       saved_exams: {
         Row: { user_id: string; exam_cycle_id: string; saved_at: string };
@@ -357,6 +394,11 @@ export interface Database {
           type: "deadline" | "admit_card" | "result" | "system";
           is_read: boolean;
           dedupe_key: string | null;
+          // Phase 13 (0019): official provenance
+          organization: string | null;
+          source_url: string | null;
+          published_on: string | null;
+          stage_update_id: string | null;
           created_at: string;
         };
         Insert: Partial<Database["public"]["Tables"]["notifications"]["Row"]> & { user_id: string; title: string; body: string; type: string };
@@ -760,6 +802,28 @@ export interface Database {
           request_id: string; actor_role: string; event_type: string;
         };
         Update: Partial<Database["public"]["Tables"]["application_request_events"]["Row"]>;
+      };
+      exam_eligibility_results: {
+        Row: {
+          user_id: string;
+          exam_cycle_id: string;
+          category: "potentially_eligible" | "needs_review" | "likely_not_eligible";
+          checks: { label: string; status: "pass" | "fail" | "review"; reason?: "missing_info" | "manual_review" | "incomplete_rules" | "pending_corrigendum"; explanation: string }[];
+          rules_fingerprint: string;
+          profile_fingerprint: string;
+          previous_category: "potentially_eligible" | "needs_review" | "likely_not_eligible" | null;
+          category_changed_at: string;
+          evaluated_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["exam_eligibility_results"]["Row"]> & {
+          user_id: string; exam_cycle_id: string; category: string; rules_fingerprint: string; profile_fingerprint: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["exam_eligibility_results"]["Row"]>;
+      };
+      exam_eligibility_cycle_state: {
+        Row: { exam_cycle_id: string; rules_fingerprint: string; users_evaluated: number; evaluated_at: string };
+        Insert: { exam_cycle_id: string; rules_fingerprint: string; users_evaluated?: number; evaluated_at?: string };
+        Update: Partial<Database["public"]["Tables"]["exam_eligibility_cycle_state"]["Row"]>;
       };
       application_request_assignments: {
         Row: { request_id: string; admin_id: string; assigned_at: string };

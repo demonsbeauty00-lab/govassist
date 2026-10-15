@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { formatDate } from "@/lib/utils";
 import { Database } from "@/lib/supabase/database.types";
-import { approveDetectedUpdateAction, rejectDetectedUpdateAction } from "@/lib/actions/admin-review";
+import { approveDetectedUpdateAction, linkDetectedUpdateToCycleAction, rejectDetectedUpdateAction, type CycleOption } from "@/lib/actions/admin-review";
 
 type DetectedUpdate = Database["public"]["Tables"]["detected_updates"]["Row"];
 
@@ -17,8 +17,10 @@ const classificationTone = {
   reject: "negative",
 } as const;
 
-function UpdateCard({ update, onResolved }: { update: DetectedUpdate; onResolved: (id: string) => void }) {
+function UpdateCard({ update, cycles, onResolved }: { update: DetectedUpdate; cycles: CycleOption[]; onResolved: (id: string) => void }) {
   const [busy, setBusy] = useState(false);
+  const [linkedCycleId, setLinkedCycleId] = useState<string | null>(update.exam_cycle_id);
+  const [pickedCycle, setPickedCycle] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [notes, setNotes] = useState("");
 
@@ -32,6 +34,19 @@ function UpdateCard({ update, onResolved }: { update: DetectedUpdate; onResolved
       return;
     }
     onResolved(update.id);
+  }
+
+  async function handleLink() {
+    if (!pickedCycle) return;
+    setBusy(true);
+    setError(null);
+    const result = await linkDetectedUpdateToCycleAction(update.id, pickedCycle);
+    setBusy(false);
+    if (result.error) {
+      setError(result.error);
+      return;
+    }
+    setLinkedCycleId(pickedCycle);
   }
 
   async function handleReject() {
@@ -83,6 +98,28 @@ function UpdateCard({ update, onResolved }: { update: DetectedUpdate; onResolved
         {update.publication_date && <p className="text-ink-muted">Published: {formatDate(update.publication_date)}</p>}
       </div>
 
+      {!linkedCycleId && update.update_type !== "new_notification" && (
+        <div className="mt-3 space-y-2 border-t border-hairline pt-3 text-sm">
+          <p className="text-ink-muted">No exam cycle was identified. Link one so users get this update, or reject it.</p>
+          <div className="flex gap-2">
+            <select
+              value={pickedCycle}
+              onChange={(e) => setPickedCycle(e.target.value)}
+              className="h-9 min-w-0 flex-1 rounded border border-hairline bg-paper-raised px-2 text-sm text-ink"
+              aria-label="Exam cycle"
+            >
+              <option value="">Choose exam cycle…</option>
+              {cycles.map((c) => (
+                <option key={c.id} value={c.id}>{c.label}</option>
+              ))}
+            </select>
+            <Button size="sm" variant="secondary" onClick={handleLink} isLoading={busy} disabled={!pickedCycle}>
+              Link
+            </Button>
+          </div>
+        </div>
+      )}
+
       <input
         value={notes}
         onChange={(e) => setNotes(e.target.value)}
@@ -104,7 +141,7 @@ function UpdateCard({ update, onResolved }: { update: DetectedUpdate; onResolved
   );
 }
 
-export function AdminReviewClient({ initialUpdates }: { initialUpdates: DetectedUpdate[] }) {
+export function AdminReviewClient({ initialUpdates, cycles }: { initialUpdates: DetectedUpdate[]; cycles: CycleOption[] }) {
   const [updates, setUpdates] = useState(initialUpdates);
 
   function handleResolved(id: string) {
@@ -118,7 +155,7 @@ export function AdminReviewClient({ initialUpdates }: { initialUpdates: Detected
   return (
     <div className="space-y-3">
       {updates.map((update) => (
-        <UpdateCard key={update.id} update={update} onResolved={handleResolved} />
+        <UpdateCard key={update.id} update={update} cycles={cycles} onResolved={handleResolved} />
       ))}
     </div>
   );

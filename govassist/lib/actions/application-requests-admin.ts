@@ -98,6 +98,11 @@ async function notifyApplicant(
 
 const NOTIFY_WARNING = "Saved, but the applicant could not be notified. Message them directly (WhatsApp/SMS) or try a follow-up message.";
 
+/** Narrows a database status string to the known union before it is used as a key. */
+function isRequestStatus(value: unknown): value is RequestStatus {
+  return typeof value === "string" && (REQUEST_STATUSES as readonly string[]).includes(value);
+}
+
 export async function getRequestCountsAction(): Promise<{ error?: string; counts: Record<RequestStatus, number> }> {
   const empty = Object.fromEntries(REQUEST_STATUSES.map((s) => [s, 0])) as Record<RequestStatus, number>;
   const gate = await requireAdmin();
@@ -105,12 +110,10 @@ export async function getRequestCountsAction(): Promise<{ error?: string; counts
   const admin = createAdminClient();
   const { data, error } = await admin.from("application_requests").select("status");
   if (error) return { error: "Couldn't load counts.", counts: empty };
-  for (const row of data ?? []) {
-  const status = row.status as RequestStatus;
-  if (REQUEST_STATUSES.includes(status)) {
-    empty[status] += 1;
+  const rows: { status: unknown }[] = data ?? [];
+  for (const row of rows) {
+    if (isRequestStatus(row.status)) empty[row.status] += 1;
   }
-}
   return { counts: empty };
 }
 

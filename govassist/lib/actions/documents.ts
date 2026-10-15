@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { refreshUserEligibility } from "@/lib/eligibility/reevaluate";
 import { requireUser } from "./session";
 import { MISSING_SUPABASE_CONFIG_MESSAGE } from "@/lib/env";
 import { DOCUMENT_TYPES, DocumentType, PROFILE_FIELD_ENTRIES, ProfileEditableField, EDUCATION_FIELD_MAP, DOCUMENT_TYPE_SLUGS } from "@/lib/document-types";
@@ -392,9 +393,13 @@ export async function applyExtractedFieldsToProfileAction(documentId: string): P
     }
   }
 
+  // Phase 12: the profile/education may have changed — re-classify exams.
+  await refreshUserEligibility(user.id);
+
   revalidatePath("/profile");
   revalidatePath("/home");
   revalidatePath("/documents");
+  revalidatePath("/discover");
 
   return {
     success: true,

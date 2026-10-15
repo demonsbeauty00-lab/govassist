@@ -8,7 +8,8 @@ import { OFFICIAL_STAGES, OFFICIAL_STAGE_LABEL, TERMINAL_STATUSES, type Official
 
 export type OfficialUpdateType =
   | "new_notification" | "corrigendum" | "application_start_date" | "application_end_date_change"
-  | "exam_date" | "admit_card" | "answer_key" | "response_sheet" | "objection_window" | "result" | "cutoff" | "other";
+  | "exam_date" | "admit_card" | "answer_key" | "response_sheet" | "objection_window" | "result" | "cutoff" | "other"
+  | "exam_city_intimation" | "scorecard";
 
 export type EventStage = "admit_card" | "exam_completed" | "answer_key" | "result" | "deadline" | "notice";
 
@@ -18,7 +19,7 @@ const STAGE_FOR_UPDATE: Partial<Record<OfficialUpdateType, "admit_card" | "answe
   result: "result",
 };
 
-const NOTICE_TYPES: OfficialUpdateType[] = ["corrigendum", "exam_date", "response_sheet", "objection_window", "cutoff"];
+const NOTICE_TYPES: OfficialUpdateType[] = ["corrigendum", "exam_date", "response_sheet", "objection_window", "cutoff", "exam_city_intimation", "scorecard"];
 
 export function stageRank(stage: OfficialStage): number {
   return OFFICIAL_STAGES.indexOf(stage);

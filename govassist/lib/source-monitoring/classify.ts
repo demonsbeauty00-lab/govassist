@@ -20,6 +20,8 @@ const DATE_SENSITIVE_TYPES: UpdateType[] = [
   "answer_key",
   "result",
   "objection_window",
+  "scorecard",
+  "exam_city_intimation",
 ];
 
 export function classifyUpdate(parsed: ParsedUpdate): Classification {

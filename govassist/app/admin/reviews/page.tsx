@@ -23,7 +23,7 @@ export default async function AdminReviewsPage() {
         <p className="mt-6 text-sm text-ineligible-fg">{result.error}</p>
       ) : (
         <div className="mt-6">
-          <AdminReviewClient initialUpdates={result.updates} />
+          <AdminReviewClient initialUpdates={result.updates} cycles={result.cycles} />
         </div>
       )}
     </div>

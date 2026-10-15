@@ -54,10 +54,18 @@ export interface ApplicantProfile {
 
 export type CheckStatus = "pass" | "fail" | "review";
 
+/** WHY a check is "review" (never set on pass/fail):
+ *  - missing_info:        the APPLICANT hasn't provided something needed
+ *  - manual_review:       a published condition that can't be verified from profile data
+ *  - incomplete_rules:    the OFFICIAL rules don't yet publish something core
+ *  - pending_corrigendum: a corrigendum was published after the rules were last verified */
+export type CheckReason = "missing_info" | "manual_review" | "incomplete_rules" | "pending_corrigendum";
+
 export interface EligibilityCheck {
   label: string;
   status: CheckStatus;
   explanation: string;
+  reason?: CheckReason;
 }
 
 export type EligibilityCategory = "potentially_eligible" | "needs_review" | "likely_not_eligible";

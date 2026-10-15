@@ -3,6 +3,7 @@ import { ConfigErrorScreen } from "@/components/ConfigErrorScreen";
 import { getProfileWithEducation } from "@/lib/actions/profile";
 import { getDocumentsAction } from "@/lib/actions/documents";
 import { getDashboardSummaryAction, getPersonalizedRealDataAction } from "@/lib/actions/dashboard";
+import { getMyOfficialUpdatesAction } from "@/lib/actions/stage-updates";
 import { buildPersonalizedDashboard } from "@/lib/dashboard/personalized";
 import { computeProfileCompletion } from "@/lib/profile-completion";
 import { HomeContent } from "@/components/home/HomeContent";
@@ -12,11 +13,12 @@ import { evaluateEligibility } from "@/lib/eligibility/engine";
 import { profileToApplicant } from "@/lib/eligibility/from-profile";
 
 export default async function HomePage() {
-  const [profileResult, documentsResult, dashboardResult, realDataResult] = await Promise.all([
+  const [profileResult, documentsResult, dashboardResult, realDataResult, officialUpdatesResult] = await Promise.all([
     getProfileWithEducation(),
     getDocumentsAction(),
     getDashboardSummaryAction(),
     getPersonalizedRealDataAction(),
+    getMyOfficialUpdatesAction(),
   ]);
 
   if (profileResult.configError) {
@@ -68,6 +70,7 @@ export default async function HomePage() {
         summary={dashboardResult.summary}
         totalExamsCovered={demoExamCycles.length}
         personalized={personalized}
+        officialUpdates={officialUpdatesResult.groups}
       />
     </AppShell>
   );

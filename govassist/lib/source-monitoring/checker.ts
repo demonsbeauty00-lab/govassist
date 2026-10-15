@@ -2,7 +2,8 @@ import "server-only";
 import { createHash } from "crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { fetchAndHash } from "./fetch";
-import { classifyUpdate } from "./classify";
+import { prepareDetectedUpdate } from "./stage/prepare";
+import { loadMatchContext } from "./stage/context";
 import { getParser } from "./parsers/registry";
 import { applyDetectedUpdate } from "./apply";
 import { Database } from "@/lib/supabase/database.types";
@@ -128,21 +129,63 @@ export async function checkSource(source: SourceRow): Promise<CheckSourceResult>
   let inserted = 0;
   let duplicates = 0;
 
-  for (const update of parsedUpdates) {
-    const identityHash = updateIdentityHash(update);
-    const classification = classifyUpdate(update);
+  // Phase 13: load the candidate exams/cycles once per source, not per update.
+  // If this lookup fails we cannot identify cycles, so nothing is auto-linked:
+  // every update below falls to NEEDS_REVIEW instead of being guessed.
+  let matchContext: Awaited<ReturnType<typeof loadMatchContext>>;
+  try {
+    matchContext = await loadMatchContext(supabase, source.exam_id);
+  } catch {
+    matchContext = { exams: [], cycles: [], loadExisting: async () => [] };
+  }
+
+  for (const original of parsedUpdates) {
+    // Identity is computed from what the PARSER produced (before refinement),
+    // so rows detected before Phase 13 keep the same hash and are never re-inserted.
+    const identityHash = updateIdentityHash(original);
+
+    const prepared = await prepareDetectedUpdate({
+      parsed: original,
+      source: { examId: source.exam_id, officialUrl: source.official_url },
+      exams: matchContext.exams,
+      cycles: matchContext.cycles,
+      loadExisting: matchContext.loadExisting,
+    });
+    const update = prepared.update;
+    const classification = prepared.classification;
+
+    // The same official document is already published for this cycle + stage
+    // (e.g. the same PDF linked from two pages): do not stage it again.
+    if (prepared.duplicate) {
+      duplicates++;
+      await supabase.from("source_audit_log").insert({
+        source_id: source.id,
+        event_type: "duplicate_skipped",
+        new_value: { title: update.title, reason: "document already published for this cycle and stage", document_key: prepared.documentKey },
+        detected_at: now,
+      });
+      continue;
+    }
+
+    // Visible to the reviewer, so "why is this in review?" is never a mystery.
+    const reviewNotes = prepared.reasons.map((r) => ({ label: "Needs review because", value: r, confidence: "low" as const }));
 
     const { data: insertedRow, error: insertError } = await supabase
       .from("detected_updates")
       .insert({
         source_id: source.id,
+        exam_cycle_id: prepared.examCycleId,
         update_type: update.updateType,
         title: update.title,
         official_url: source.official_url,
         document_url: update.documentUrl,
         publication_date: update.publicationDate,
+        event_date: update.eventDate ?? null,
+        cycle_match: prepared.cycleMatch,
+        series_key: prepared.seriesKey,
+        is_revision: prepared.isRevision,
         content_hash: identityHash,
-        extracted_fields: update.extractedFields,
+        extracted_fields: [...update.extractedFields, ...reviewNotes],
         classification,
         status: "pending",
       })
@@ -175,6 +218,16 @@ export async function checkSource(source: SourceRow): Promise<CheckSourceResult>
     }
 
     inserted++;
+
+    if (!prepared.examCycleId && update.updateType !== "new_notification") {
+      await supabase.from("source_audit_log").insert({
+        source_id: source.id,
+        detected_update_id: insertedRow.id,
+        event_type: "cycle_unmatched",
+        new_value: { reason: prepared.cycleReason },
+        detected_at: now,
+      });
+    }
 
     // AUTO_PUBLISH means no human verification is required (requirement
     // 6) — apply it immediately, through the exact same function admin

@@ -7,6 +7,10 @@ import { ActionState } from "./auth";
 import { Database } from "@/lib/supabase/database.types";
 import { MISSING_SUPABASE_CONFIG_MESSAGE } from "@/lib/env";
 import { requireUser } from "./session";
+import { refreshUserEligibility } from "@/lib/eligibility/reevaluate";
+
+// Profile fields the eligibility engine reads (full_name / preferred_categories don't affect it).
+const ELIGIBILITY_PROFILE_FIELDS = ["dob", "gender", "state", "category", "is_pwbd"];
 
 export async function getProfileWithEducation() {
   const result = await requireUser();
@@ -79,6 +83,9 @@ export async function completeOnboardingAction(_prevState: ActionState, formData
   });
   if (educationError) return { error: educationError.message };
 
+  // Phase 12: classify every published cycle for this (new or updated) profile.
+  await refreshUserEligibility(user.id);
+
   redirect("/home");
 }
 
@@ -104,7 +111,10 @@ export async function updateProfileFieldAction(field: string, value: string | bo
 
   if (error) return { error: error.message };
 
+  if (ELIGIBILITY_PROFILE_FIELDS.includes(field)) await refreshUserEligibility(user.id);
+
   revalidatePath("/profile");
+  revalidatePath("/discover");
   return { success: true };
 }
 
@@ -131,6 +141,9 @@ export async function updateEducationFieldAction(educationId: string, field: str
 
   if (error) return { error: error.message };
 
+  await refreshUserEligibility(user.id);
+
   revalidatePath("/profile");
+  revalidatePath("/discover");
   return { success: true };
 }

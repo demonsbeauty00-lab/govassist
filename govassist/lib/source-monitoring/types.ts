@@ -25,6 +25,9 @@ export interface ParsedUpdate {
   title: string;
   documentUrl: string | null;
   publicationDate: string | null; // ISO date, only if confidently determined
+  /** Phase 13: the stage's own date (e.g. the exam date) when the notice
+   *  states one explicitly. Optional so existing parsers keep working. */
+  eventDate?: string | null;
   extractedFields: ExtractedNoticeField[];
 }
 

@@ -67,7 +67,7 @@ function checkAge(profile: ApplicantProfile, rules: EligibilityRules): Eligibili
   if (rules.ageMin == null && rules.ageMax == null) return null; // not published
 
   if (!profile.dob) {
-    return { label: "Age", status: "review", explanation: "Add your date of birth to your profile to check this." };
+    return { label: "Age", status: "review", reason: "missing_info", explanation: "Add your date of birth to your profile to check this." };
   }
 
   const asOf = rules.ageCutoffDate || rules.notificationDate;
@@ -104,6 +104,7 @@ function checkDegree(profile: ApplicantProfile, rules: EligibilityRules): Eligib
     return {
       label: "Qualification",
       status: "review",
+      reason: "missing_info",
       explanation: `This cycle requires ${rules.requiredDegree} — add your education details to check this.`,
     };
   }
@@ -137,6 +138,7 @@ function checkSubject(profile: ApplicantProfile, rules: EligibilityRules): Eligi
     return {
       label: "Subject",
       status: "review",
+      reason: "missing_info",
       explanation: `This cycle requires a subject/stream of ${rules.requiredSubject} — add your subject to check this.`,
     };
   }
@@ -145,7 +147,8 @@ function checkSubject(profile: ApplicantProfile, rules: EligibilityRules): Eligi
   if (!matches) {
     return {
       label: "Subject",
-      status: "review", // a subject-name mismatch can still be equivalent under the notification's own definitions, so this is a review, not a hard fail
+      status: "review",
+      reason: "manual_review", // a subject-name mismatch can still be equivalent under the notification's own definitions, so this is a review, not a hard fail
       explanation: `This cycle requires ${rules.requiredSubject} — your recorded subject is "${subject}". Check the official notification's exact subject list.`,
     };
   }
@@ -161,6 +164,7 @@ function checkPercentage(profile: ApplicantProfile, rules: EligibilityRules): El
     return {
       label: "Minimum percentage",
       status: "review",
+      reason: "missing_info",
       explanation: `This cycle requires at least ${rules.minPercentage}% — add your marks to check this.`,
     };
   }
@@ -178,7 +182,7 @@ function checkCategory(profile: ApplicantProfile, rules: EligibilityRules): Elig
   if (!rules.eligibleCategories || rules.eligibleCategories.length === 0) return null; // open to all — nothing to check
 
   if (!profile.category) {
-    return { label: "Category", status: "review", explanation: "Add your category to your profile to check this." };
+    return { label: "Category", status: "review", reason: "missing_info", explanation: "Add your category to your profile to check this." };
   }
   if (!rules.eligibleCategories.includes(profile.category)) {
     return {
@@ -194,7 +198,7 @@ function checkDomicile(profile: ApplicantProfile, rules: EligibilityRules): Elig
   if (!rules.domicileRequired || !rules.examState) return null;
 
   if (!profile.state) {
-    return { label: "State / domicile", status: "review", explanation: `This cycle requires ${rules.examState} domicile — add your state to check this.` };
+    return { label: "State / domicile", status: "review", reason: "missing_info", explanation: `This cycle requires ${rules.examState} domicile — add your state to check this.` };
   }
   if (profile.state !== rules.examState) {
     return {
@@ -210,7 +214,7 @@ function checkGender(profile: ApplicantProfile, rules: EligibilityRules): Eligib
   if (!rules.genderRequirement) return null;
 
   if (!profile.gender) {
-    return { label: "Gender", status: "review", explanation: `This cycle is restricted to ${rules.genderRequirement} candidates — add your gender to check this.` };
+    return { label: "Gender", status: "review", reason: "missing_info", explanation: `This cycle is restricted to ${rules.genderRequirement} candidates — add your gender to check this.` };
   }
   if (profile.gender !== rules.genderRequirement) {
     return {
@@ -228,10 +232,10 @@ function checkGender(profile: ApplicantProfile, rules: EligibilityRules): Eligib
  *  skipped or wrongly marked as passed. */
 function freeformReviewCheck(label: string, value: string | null): EligibilityCheck | null {
   if (!value) return null;
-  return { label, status: "review", explanation: `${value} — verify against the official notification.` };
+  return { label, status: "review", reason: "manual_review", explanation: `${value} — verify against the official notification.` };
 }
 
-const DISCLAIMER: Record<EligibilityCategory, string> = {
+export const DISCLAIMER: Record<EligibilityCategory, string> = {
   potentially_eligible:
     "Based on the information currently available, you appear to meet the listed eligibility criteria. Verify the official notification before applying.",
   needs_review:
