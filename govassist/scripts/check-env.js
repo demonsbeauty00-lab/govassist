@@ -7,9 +7,14 @@ const required = [
   { key: "NEXT_PUBLIC_SUPABASE_ANON_KEY", hint: "Project Settings → API → anon public key" },
 ];
 
+// Phase 16: the first two are REQUIRED for automation, admin review and the manual-assistance
+// workflow (they only look optional to this script because the public pages work without them).
 const optional = [
-  { key: "SUPABASE_SERVICE_ROLE_KEY", hint: "Project Settings → API → service_role key (server-only, needed for seeding exam data and the source-monitoring pipeline)" },
-  { key: "CRON_SECRET", hint: "A random secret you choose (e.g. `openssl rand -hex 32`) — required for the /api/cron/check-sources endpoint to accept requests" },
+  { key: "SUPABASE_SERVICE_ROLE_KEY", hint: "REQUIRED for source monitoring, admin tools and notifications — Project Settings → API → service_role key (server-only)" },
+  { key: "CRON_SECRET", hint: "REQUIRED for scheduled jobs — a random secret you choose (e.g. `openssl rand -hex 32`); both /api/cron/* routes refuse to run without it" },
+  { key: "RESEND_API_KEY", hint: "Optional — email notifications (also needs EMAIL_FROM). In-app notifications work without it" },
+  { key: "EMAIL_FROM", hint: "Optional — sender address for email notifications" },
+  { key: "RESEND_WEBHOOK_SECRET", hint: "Optional — lets emails be marked 'delivered' (otherwise they stay 'sent')" },
   { key: "NEXT_PUBLIC_SITE_URL", hint: "Your deployed origin, e.g. https://govassist.app (used to build auth email redirect links)" },
 ];
 

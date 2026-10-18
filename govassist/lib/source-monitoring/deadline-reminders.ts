@@ -1,73 +1,100 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { notifySavedUsers } from "./notify";
+import { notify } from "@/lib/notifications/engine";
+import {
+  deadlineKeyPrefix,
+  deadlineReminderKey,
+  planDeadlineReminder,
+  reminderText,
+} from "@/lib/notifications/deadline";
+import { isCorrigendumPending } from "@/lib/eligibility/plan";
+import { DISCOVER_LINK } from "@/lib/notifications/events";
+import type { NotificationDraft } from "@/lib/notifications/engine/types";
 
-const THRESHOLDS_DAYS = [7, 3, 1];
+type Admin = ReturnType<typeof createAdminClient>;
 
 /**
- * Real-exam counterpart to lib/actions/reminders.ts (which handles the
- * still-mock demo catalog — see that file's header). This one reads the
- * live application_end_date straight off exam_cycles every run, so a
- * corrigendum that changes the deadline (applied via
- * lib/source-monitoring/apply.ts, which patches that same column) is
- * automatically reflected the next time this sweep runs — there's no
- * separate "update the reminder" step, because there's no stored reminder
- * to go stale; every run recomputes days-left from the current value.
- *
- * "Do not generate reminders if the deadline is uncertain" (requirement
- * 10): the query below only considers cycles with a non-null
- * application_end_date at all, and only fires at exactly 7/3/1 days out —
- * an exam whose deadline isn't published yet simply never matches.
+ * Cancels reminders that belong to an OLD deadline: unread DEADLINE_APPROACHING
+ * notifications for this cycle whose key carries a different date are deleted
+ * (read ones are history and stay). Called when a deadline changes
+ * (source-monitoring/apply.ts) and defensively by every sweep. Failures are
+ * non-fatal: the new date's keys differ, so nothing duplicates either way.
  */
-export async function sweepRealDeadlineReminders(): Promise<{ remindersSent: number }> {
-  const supabase = createAdminClient();
+export async function cancelObsoleteDeadlineReminders(admin: Admin, cycleId: string, currentDeadline: string | null): Promise<number> {
+  const prefix = deadlineKeyPrefix(cycleId);
+  let q = admin.from("notifications").delete().eq("is_read", false).like("dedupe_key", `${prefix}%`);
+  if (currentDeadline) q = q.not("dedupe_key", "like", `${prefix}${currentDeadline}:%`);
+  const { data, error } = await q.select("id");
+  if (error) return 0;
+  return data?.length ?? 0;
+}
+
+/**
+ * Daily sweep (called from /api/cron/check-sources; Vercel Hobby = daily
+ * crons, no always-on process). Reads the CURRENT verified deadline off
+ * exam_cycles on every run, so a changed deadline is picked up automatically.
+ * See lib/notifications/deadline.ts for the rules (IST end-of-day, 7/3/1,
+ * nothing for missing/uncertain/passed deadlines) and the per-user dedupe key.
+ */
+export async function sweepRealDeadlineReminders(): Promise<{ remindersSent: number; cancelled: number }> {
+  const admin = createAdminClient();
   const now = new Date();
 
-  const { data: cycles } = await supabase
+  const { data: cycles } = await admin
     .from("exam_cycles")
-    .select("id, exam_id, application_end_date")
+    .select("id, exam_id, application_end_date, last_verified_date")
     .eq("status", "published")
     .not("application_end_date", "is", null);
+  if (!cycles || cycles.length === 0) return { remindersSent: 0, cancelled: 0 };
 
-  if (!cycles || cycles.length === 0) return { remindersSent: 0 };
-
-  let remindersSent = 0;
-
-  for (const cycle of cycles) {
-    if (!cycle.application_end_date) continue;
-
-    const daysLeft = Math.ceil((new Date(cycle.application_end_date).getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-    if (!THRESHOLDS_DAYS.includes(daysLeft)) continue;
-
-    const { data: exam } = await supabase.from("exams").select("slug, short_name").eq("id", cycle.exam_id).maybeSingle();
-    if (!exam) continue;
-
-    const title = `${exam.short_name}: ${daysLeft} day${daysLeft === 1 ? "" : "s"} remaining to apply`;
-
-    // Cross-user dedup: if this exact threshold's reminder already went out
-    // to anyone in roughly the last day, skip re-sending this run. This is
-    // a batch-level check (not per-recipient), which is the honest
-    // trade-off of not having dedicated per-user delivery tracking — see
-    // the README for what a more precise version would need.
-    const twentyHoursAgo = new Date(now.getTime() - 20 * 60 * 60 * 1000).toISOString();
-    const { data: existing } = await supabase
-      .from("notifications")
-      .select("id")
-      .eq("type", "deadline")
-      .eq("title", title)
-      .gte("created_at", twentyHoursAgo)
-      .limit(1)
-      .maybeSingle();
-    if (existing) continue;
-
-    const { notified } = await notifySavedUsers({
-      examSlug: exam.slug,
-      title,
-      body: `Source: Official notification. The application window for ${exam.short_name} closes in ${daysLeft} day${daysLeft === 1 ? "" : "s"} — verify details in official notification before applying.`,
-      type: "deadline",
-    });
-    remindersSent += notified;
+  const { data: corrigenda } = await admin
+    .from("detected_updates")
+    .select("exam_cycle_id, processed_at")
+    .eq("update_type", "corrigendum")
+    .eq("status", "published")
+    .in("exam_cycle_id", cycles.map((c) => c.id));
+  const corrigendaByCycle = new Map<string, (string | null)[]>();
+  for (const row of corrigenda ?? []) {
+    if (!row.exam_cycle_id) continue;
+    corrigendaByCycle.set(row.exam_cycle_id, [...(corrigendaByCycle.get(row.exam_cycle_id) ?? []), row.processed_at]);
   }
 
-  return { remindersSent };
+  let remindersSent = 0;
+  let cancelled = 0;
+
+  for (const cycle of cycles) {
+    cancelled += await cancelObsoleteDeadlineReminders(admin, cycle.id, cycle.application_end_date);
+
+    const plan = planDeadlineReminder({
+      deadlineDate: cycle.application_end_date,
+      now,
+      corrigendumPending: isCorrigendumPending(cycle.last_verified_date, corrigendaByCycle.get(cycle.id) ?? []),
+    });
+    if (!plan) continue;
+
+    const { data: exam } = await admin.from("exams").select("slug, short_name").eq("id", cycle.exam_id).maybeSingle();
+    if (!exam) continue;
+
+    // Audience: users who saved this exam and have not recorded an application.
+    const { data: saved } = await admin.from("profiles").select("user_id").contains("saved_exam_slugs", [exam.slug]);
+    const { data: applied } = await admin.from("applications").select("user_id").eq("exam_cycle_id", cycle.id).eq("status", "applied");
+    const appliedIds = new Set((applied ?? []).map((a) => a.user_id));
+    const audience = (saved ?? []).map((p) => p.user_id).filter((id) => !appliedIds.has(id));
+    if (audience.length === 0) continue;
+
+    const text = reminderText(exam.short_name, plan);
+    const key = deadlineReminderKey(cycle.id, plan.deadlineDate, plan.threshold);
+    const drafts: NotificationDraft[] = audience.map((userId) => ({
+      userId,
+      event: "DEADLINE_APPROACHING",
+      title: text.title,
+      body: text.body,
+      dedupeKey: key,
+      linkUrl: `${DISCOVER_LINK}`,
+    }));
+    const summary = await notify(drafts, admin);
+    remindersSent += summary.created;
+  }
+
+  return { remindersSent, cancelled };
 }

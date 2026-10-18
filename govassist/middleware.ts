@@ -3,7 +3,7 @@ import { createServerClient } from "@supabase/ssr";
 
 // Routes that require a signed-in session. Everything else (landing, login,
 // signup, password reset) stays public.
-const PROTECTED_PREFIXES = ["/home", "/jobs", "/discover", "/exams", "/preparation", "/documents", "/profile", "/notifications", "/apply-assistant", "/settings", "/onboarding", "/admin"];
+const PROTECTED_PREFIXES = ["/home", "/jobs", "/discover", "/exams", "/preparation", "/documents", "/profile", "/notifications", "/apply-assistant", "/settings", "/onboarding", "/admin", "/answer-key", "/updates"];
 
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({ request });

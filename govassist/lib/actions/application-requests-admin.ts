@@ -1,9 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireUser } from "./session";
+import { requireAdmin } from "@/lib/auth/require-admin";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { MISSING_SUPABASE_CONFIG_MESSAGE } from "@/lib/env";
 import type { Database } from "@/lib/supabase/database.types";
 import {
   OFFICIAL_STAGE_LABEL, REQUEST_STATUSES, RETENTION_DAYS, SIGNED_URL_SECONDS, STATUS_LABEL, TERMINAL_STATUSES,
@@ -11,13 +10,16 @@ import {
 } from "@/lib/application-requests/constants";
 import {
   adminListFilterSchema, adminUpdateSchema, claimSchema, internalNoteSchema, isPastDateIST, linkCycleSchema,
-  officialStageSchema,
+  officialStageSchema, todayIST,
 } from "@/lib/application-requests/schema";
 import { canAdvanceOfficialStage, isOfficiallySubmitted } from "@/lib/application-requests/official-stage";
 import {
   CONFIRMATION_NOTIFICATION_BODY, FORM_FILLING_NOTIFICATION_BODY, MESSAGE_NOTIFICATION_BODY,
-  OFFICIAL_STAGE_NOTIFICATION_BODY, statusNotificationBody,
+  OFFICIAL_STAGE_NOTIFICATION_BODY, buildStatusNotification, genericRequestNotification,
 } from "@/lib/application-requests/notify-text";
+import { notifyRequestUser, supabaseRequestNotificationStore } from "@/lib/application-requests/notify";
+import { eventForRequestStatus, type NotificationEvent } from "@/lib/notifications/events";
+import { compareByUrgency, countQueues, OPEN_STATUSES } from "@/lib/application-requests/admin-queues";
 import { validateAdminTransition } from "@/lib/application-requests/transitions";
 import { interpretConditionalUpdate } from "@/lib/application-requests/workflow";
 import { bytesMatchMime, safeFileName, validateUploadMeta } from "@/lib/application-requests/file-validation";
@@ -47,13 +49,6 @@ export interface AdminActionResult {
  *  own session against the `admins` table, re-checked in EVERY function
  *  below (never trusted from the UI), because everything afterwards uses
  *  the service-role client which bypasses RLS. */
-async function requireAdmin() {
-  const result = await requireUser();
-  if (!result.ok) return { ok: false as const, error: MISSING_SUPABASE_CONFIG_MESSAGE };
-  const { data } = await result.supabase.from("admins").select("user_id").eq("user_id", result.user.id).maybeSingle();
-  if (!data) return { ok: false as const, error: "You don't have access to this." };
-  return { ok: true as const, userId: result.user.id };
-}
 
 function revalidateAll(id: string, userId?: string) {
   revalidatePath("/admin/application-requests");
@@ -63,31 +58,36 @@ function revalidateAll(id: string, userId?: string) {
   if (userId) revalidatePath("/notifications");
 }
 
-/** Best-effort, deduplicated per event (see 0013_notification_dedupe).
- *  Returns false when it could not be created so the caller can tell the
- *  admin instead of silently pretending the applicant was informed. */
+/** Best-effort, deduplicated per event (see 0013_notification_dedupe), and
+ *  honours the applicant's notification preferences. Returns false ONLY when
+ *  a notification should have been created but could not be, so the caller can
+ *  tell the admin instead of pretending the applicant was informed. An
+ *  applicant who turned these notifications off (or an already-sent duplicate)
+ *  is not a failure. */
 async function notifyApplicant(
   admin: ReturnType<typeof createAdminClient>,
   request: Pick<RequestRow, "id" | "user_id" | "request_code">,
   eventId: string,
-  body: string,
+  event: NotificationEvent,
+  content: { title: string; body: string },
 ): Promise<boolean> {
+  let outcome: Awaited<ReturnType<typeof notifyRequestUser>> = "failed";
   try {
-    const { error } = await admin.from("notifications").upsert(
-      {
-        user_id: request.user_id,
-        title: `Update on your request ${request.request_code}`,
-        body: body.slice(0, 300),
-        type: "system" as const,
-        dedupe_key: `apprequest:${request.id}:${eventId}`,
-      },
-      { onConflict: "user_id,dedupe_key", ignoreDuplicates: true },
-    );
-    if (!error) return true;
-    console.error("application_requests: notification failed", error.code);
+    outcome = await notifyRequestUser({
+      store: supabaseRequestNotificationStore(admin),
+      userId: request.user_id,
+      requestId: request.id,
+      dedupeSuffix: eventId,
+      event,
+      title: content.title,
+      body: content.body,
+    });
   } catch {
     console.error("application_requests: notification threw");
   }
+  if (outcome !== "failed") return true;
+
+  console.error("application_requests: notification failed");
   // Internal audit trail of the failure (never shown to the applicant).
   await admin.from("application_request_events").insert({
     request_id: request.id, actor_role: "system", event_type: "notification_failed", visibility: "internal",
@@ -103,21 +103,23 @@ function isRequestStatus(value: unknown): value is RequestStatus {
   return typeof value === "string" && (REQUEST_STATUSES as readonly string[]).includes(value);
 }
 
-export async function getRequestCountsAction(): Promise<{ error?: string; counts: Record<RequestStatus, number> }> {
+export async function getRequestCountsAction(): Promise<{ error?: string; counts: Record<RequestStatus, number>; overdue: number; open: number }> {
   const empty = Object.fromEntries(REQUEST_STATUSES.map((s) => [s, 0])) as Record<RequestStatus, number>;
   const gate = await requireAdmin();
-  if (!gate.ok) return { error: gate.error, counts: empty };
+  if (!gate.ok) return { error: gate.error, counts: empty, overdue: 0, open: 0 };
   const admin = createAdminClient();
-  const { data, error } = await admin.from("application_requests").select("status");
-  if (error) return { error: "Couldn't load counts.", counts: empty };
-  const rows: { status: unknown }[] = data ?? [];
-  for (const row of rows) {
-    if (isRequestStatus(row.status)) empty[row.status] += 1;
-  }
-  return { counts: empty };
+  const { data, error } = await admin.from("application_requests").select("status, application_deadline");
+  if (error) return { error: "Couldn't load counts.", counts: empty, overdue: 0, open: 0 };
+  const rows: { status: unknown; application_deadline: unknown }[] = data ?? [];
+  const typed = rows.map((r) => ({
+    status: typeof r.status === "string" ? r.status : "",
+    application_deadline: typeof r.application_deadline === "string" ? r.application_deadline : null,
+  }));
+  const q = countQueues(typed, todayIST());
+  return { counts: q.byStatus, overdue: q.overdue, open: q.open };
 }
 
-export async function listAdminRequestsAction(filter: { status?: string; q?: string }): Promise<{ error?: string; requests: RequestRow[] }> {
+export async function listAdminRequestsAction(filter: { status?: string; q?: string; queue?: string }): Promise<{ error?: string; requests: RequestRow[] }> {
   const gate = await requireAdmin();
   if (!gate.ok) return { error: gate.error, requests: [] };
   const parsed = adminListFilterSchema.safeParse(filter);
@@ -126,6 +128,10 @@ export async function listAdminRequestsAction(filter: { status?: string; q?: str
   const admin = createAdminClient();
   let query = admin.from("application_requests").select("*").order("created_at", { ascending: false }).limit(300);
   if (parsed.data.status) query = query.eq("status", parsed.data.status);
+  if (parsed.data.queue === "overdue") {
+    // Same definition as lib/application-requests/admin-queues.ts: open + last date passed.
+    query = query.in("status", OPEN_STATUSES).lt("application_deadline", todayIST());
+  }
   const { data, error } = await query;
   if (error) return { error: "Couldn't load requests.", requests: [] };
 
@@ -136,7 +142,8 @@ export async function listAdminRequestsAction(filter: { status?: string; q?: str
     ? (data ?? []).filter((r) =>
         [r.request_code, r.applicant_name, r.exam_title].some((v) => v.toLowerCase().includes(q)))
     : (data ?? []);
-  return { requests: rows };
+  // Overdue view: the longest-overdue first.
+  return { requests: parsed.data.queue === "overdue" ? [...rows].sort(compareByUrgency) : rows };
 }
 
 export async function getAdminRequestAction(requestId: string): Promise<AdminRequestDetail | null> {
@@ -259,7 +266,16 @@ export async function updateRequestStatusAction(input: {
     return { error: "Couldn't record the change, so it was not applied. Please try again." };
   }
 
-  const notified = await notifyApplicant(admin, request, evs[0]!.id, statusNotificationBody(toStatus));
+  const notified = await notifyApplicant(
+    admin, request, evs[0]!.id, eventForRequestStatus(toStatus),
+    buildStatusNotification({
+      status: toStatus,
+      requestCode: request.request_code,
+      // Verified only: the status itself (set after a reference/confirmation was
+      // required) or an earlier verified submission on this request.
+      officiallySubmitted: toStatus === "submitted_on_portal" || request.submitted_on_portal_at !== null,
+    }),
+  );
   revalidateAll(requestId, request.user_id);
   return notified ? {} : { warning: NOTIFY_WARNING };
 }
@@ -289,7 +305,7 @@ export async function sendAdminMessageAction(requestId: string, message: string)
     return { error: "Couldn't send the message — the request may have just changed. Refresh and try again." };
   }
 
-  const notified = await notifyApplicant(admin, request, ev.id, MESSAGE_NOTIFICATION_BODY);
+  const notified = await notifyApplicant(admin, request, ev.id, "APPLICATION_REQUEST_MESSAGE", genericRequestNotification(request.request_code, MESSAGE_NOTIFICATION_BODY));
   revalidateAll(requestId, request.user_id);
   return notified ? {} : { warning: NOTIFY_WARNING };
 }
@@ -378,7 +394,7 @@ export async function startFormFillingAction(requestId: string): Promise<AdminAc
   }).select("id").single();
   if (error || !ev) return { error: "Couldn't record that. Please try again." };
 
-  const notified = await notifyApplicant(admin, request, ev.id, FORM_FILLING_NOTIFICATION_BODY);
+  const notified = await notifyApplicant(admin, request, ev.id, "APPLICATION_REQUEST_IN_PROGRESS", genericRequestNotification(request.request_code, FORM_FILLING_NOTIFICATION_BODY));
   revalidateAll(requestId, request.user_id);
   return notified ? {} : { warning: NOTIFY_WARNING };
 }
@@ -421,7 +437,7 @@ export async function setOfficialStageAction(input: { requestId: string; stage: 
     return { error: "Couldn't record the change, so it was not applied. Please try again." };
   }
 
-  const notified = await notifyApplicant(admin, request, ev.id, OFFICIAL_STAGE_NOTIFICATION_BODY);
+  const notified = await notifyApplicant(admin, request, ev.id, "APPLICATION_STATUS_CHANGED", genericRequestNotification(request.request_code, OFFICIAL_STAGE_NOTIFICATION_BODY));
   revalidateAll(requestId, request.user_id);
   return notified ? {} : { warning: NOTIFY_WARNING };
 }
@@ -530,7 +546,7 @@ export async function uploadConfirmationDocumentAction(formData: FormData): Prom
     await admin.storage.from(BUCKET).remove([path]);
     return { error: "Couldn't record the upload, so it was not saved. Please try again." };
   }
-  const notified = await notifyApplicant(admin, request, ev.id, CONFIRMATION_NOTIFICATION_BODY);
+  const notified = await notifyApplicant(admin, request, ev.id, "APPLICATION_REQUEST_MESSAGE", genericRequestNotification(request.request_code, CONFIRMATION_NOTIFICATION_BODY));
   revalidateAll(request.id, request.user_id);
   return notified ? {} : { warning: NOTIFY_WARNING };
 }

@@ -2,6 +2,7 @@ import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { Database } from "@/lib/supabase/database.types";
 import { notifyRelevantUsers } from "./notify-relevant";
+import { cancelObsoleteDeadlineReminders } from "./deadline-reminders";
 import { refreshCycleEligibility } from "@/lib/eligibility/reevaluate";
 import { syncRequestsForOfficialUpdate } from "@/lib/application-requests/official-sync";
 import { buildExamCycleUpdate } from "./stage/cycle-patch";
@@ -99,6 +100,15 @@ export async function applyDetectedUpdate(updateId: string, reviewedBy: string |
           .update({ ...cyclePatch, updated_at: now })
           .eq("id", update.exam_cycle_id);
         if (patchError) return { error: patchError.message };
+        // Phase 14: a changed deadline makes older reminders obsolete. Failure is
+        // non-fatal (new-date reminders use new dedupe keys anyway).
+        if ("application_end_date" in cyclePatch) {
+          try {
+            await cancelObsoleteDeadlineReminders(supabase, update.exam_cycle_id, cyclePatch.application_end_date ?? null);
+          } catch {
+            console.error("apply: could not cancel obsolete reminders");
+          }
+        }
       }
     }
   }

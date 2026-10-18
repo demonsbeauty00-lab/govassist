@@ -1,24 +1,15 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireUser } from "./session";
+import { requireAdmin } from "@/lib/auth/require-admin";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { MISSING_SUPABASE_CONFIG_MESSAGE } from "@/lib/env";
+import { loadOptionsAdmin } from "@/lib/pyq/load-options-admin";
 import { ingestPaper } from "@/lib/pyq/ingestion/run";
 
 /** Same authorization boundary as lib/actions/admin-review.ts's
  *  requireAdmin() — re-checked independently here rather than trusted,
  *  since every function below uses the admin client afterward, which
  *  bypasses RLS entirely. */
-async function requireAdmin() {
-  const result = await requireUser();
-  if (!result.ok) return { ok: false as const, error: MISSING_SUPABASE_CONFIG_MESSAGE };
-
-  const { data } = await result.supabase.from("admins").select("user_id").eq("user_id", result.user.id).maybeSingle();
-  if (!data) return { ok: false as const, error: "You don't have access to this." };
-
-  return { ok: true as const, userId: result.user.id };
-}
 
 export async function listPendingPapersAction() {
   const admin = await requireAdmin();
@@ -35,10 +26,9 @@ export async function getPendingPaperQuestionsAction(paperId: string) {
   if (!admin.ok) return { error: admin.error, questions: [] };
 
   const supabase = createAdminClient();
-  const [{ data: questions }, { data: options }] = await Promise.all([
-    supabase.from("questions").select("*").eq("paper_id", paperId).order("question_number", { ascending: true }),
-    supabase.from("question_options").select("*"),
-  ]);
+  const { data: questions } = await supabase.from("questions").select("*").eq("paper_id", paperId).order("question_number", { ascending: true });
+  // Phase 16: only this paper's options (the old unfiltered read could be cut off at 1000 rows).
+  const options = await loadOptionsAdmin(supabase, (questions ?? []).map((q) => q.id));
   const optionsByQuestion = new Map<string, typeof options>();
   for (const opt of options ?? []) {
     const list = optionsByQuestion.get(opt.question_id) ?? [];

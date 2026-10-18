@@ -1,10 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireUser } from "./session";
+import { requireAdmin } from "@/lib/auth/require-admin";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { applyDetectedUpdate } from "@/lib/source-monitoring/apply";
-import { MISSING_SUPABASE_CONFIG_MESSAGE } from "@/lib/env";
 
 /**
  * Verifies the signed-in user is a real admin (checked via their own
@@ -14,15 +13,6 @@ import { MISSING_SUPABASE_CONFIG_MESSAGE } from "@/lib/env";
  * caller to have checked first, since these actions use the admin client
  * afterward, which bypasses RLS entirely.
  */
-async function requireAdmin() {
-  const result = await requireUser();
-  if (!result.ok) return { ok: false as const, error: MISSING_SUPABASE_CONFIG_MESSAGE };
-
-  const { data } = await result.supabase.from("admins").select("user_id").eq("user_id", result.user.id).maybeSingle();
-  if (!data) return { ok: false as const, error: "You don't have access to this." };
-
-  return { ok: true as const, userId: result.user.id };
-}
 
 export interface CycleOption { id: string; label: string }
 

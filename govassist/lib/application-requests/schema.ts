@@ -70,6 +70,8 @@ export const internalNoteSchema = z.object({
 
 export const adminListFilterSchema = z.object({
   status: z.enum(REQUEST_STATUSES).optional(),
+  /** Phase 15: "overdue" = still open although the applicant's last date has passed. */
+  queue: z.enum(["overdue"]).optional(),
   q: text(100).optional(),
 });
 

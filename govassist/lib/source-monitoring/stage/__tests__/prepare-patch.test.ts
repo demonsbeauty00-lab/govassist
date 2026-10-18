@@ -98,6 +98,16 @@ describe("buildExamCycleUpdate", () => {
     const p = buildExamCycleUpdate(du({ update_type: "exam_date", event_date: "2027-06-12", extracted_fields: [{ label: "Event end date", value: "2027-06-15", confidence: "high" }] }), null);
     expect(p).toMatchObject({ exam_date: "2027-06-12", exam_date_end: "2027-06-15", current_status: "exam_date_announced" });
   });
+  it("never uses the publication date as an application date (Phase 16)", () => {
+    expect(buildExamCycleUpdate(du({ update_type: "application_end_date_change", publication_date: "2027-03-10" }), null)).toEqual({});
+    expect(buildExamCycleUpdate(du({ update_type: "application_start_date", publication_date: "2027-03-10" }), null)).toEqual({});
+    const end = buildExamCycleUpdate(du({ update_type: "application_end_date_change", event_date: "2027-04-20" }), null);
+    expect(end.application_end_date).toBe("2027-04-20");
+    const range = buildExamCycleUpdate(du({ update_type: "application_end_date_change", event_date: "2027-04-01", extracted_fields: [{ label: "Event end date", value: "2027-04-25", confidence: "high" }] }), null);
+    expect(range.application_end_date).toBe("2027-04-25");
+    const start = buildExamCycleUpdate(du({ update_type: "application_start_date", event_date: "2027-03-15" }), null);
+    expect(start.application_start_date).toBe("2027-03-15");
+  });
   it("stores links for city intimation, response sheet and scorecard", () => {
     expect(buildExamCycleUpdate(du({ update_type: "exam_city_intimation" }), null).exam_city_intimation_url).toBe("https://x/a.pdf");
     expect(buildExamCycleUpdate(du({ update_type: "response_sheet" }), null).response_sheet_url).toBe("https://x/a.pdf");

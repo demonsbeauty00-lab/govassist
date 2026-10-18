@@ -1,22 +1,14 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireUser } from "./session";
+import { requireAdmin } from "@/lib/auth/require-admin";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { MISSING_SUPABASE_CONFIG_MESSAGE } from "@/lib/env";
 import { applyAnswerKeyRevision, AnswerKeyRevisionEntry } from "@/lib/pyq/ingestion/answer-key-revision";
-import { isTypeEnabled } from "@/lib/notifications/preferences";
+import { notify } from "@/lib/notifications/engine";
 
 /** Same authorization boundary as lib/actions/pyq-admin.ts's
  *  requireAdmin() — re-checked independently rather than trusted, since
  *  every function below uses the admin client afterward. */
-async function requireAdmin() {
-  const result = await requireUser();
-  if (!result.ok) return { ok: false as const, error: MISSING_SUPABASE_CONFIG_MESSAGE };
-  const { data } = await result.supabase.from("admins").select("user_id").eq("user_id", result.user.id).maybeSingle();
-  if (!data) return { ok: false as const, error: "You don't have access to this." };
-  return { ok: true as const, userId: result.user.id };
-}
 
 export interface SubmitAnswerKeyRevisionInput {
   paperId: string;
@@ -157,30 +149,23 @@ export async function notifyUsersOfAnswerKeyAction(paperId: string): Promise<{ e
   const body = "Calculate your expected score from your response sheet or by re-entering your answers.";
 
   const { data: attemptUserRows } = await supabase.from("paper_attempts").select("user_id").eq("paper_id", paperId);
-  const userIds = new Set((attemptUserRows ?? []).map((r) => r.user_id));
+  const userIds = new Set<string>((attemptUserRows ?? []).map((r) => r.user_id as string));
 
   const { data: profilesWithSaved } = await supabase.from("profiles").select("user_id").contains("saved_exam_slugs", [paper.exam_slug]);
   for (const p of profilesWithSaved ?? []) userIds.add(p.user_id);
   if (userIds.size === 0) return { notified: 0 };
 
-  const { data: prefRows } = await supabase.from("profiles").select("user_id, notification_preferences").in("user_id", Array.from(userIds));
-  const prefsByUser = new Map((prefRows ?? []).map((r) => [r.user_id, r.notification_preferences]));
-
-  const rows = Array.from(userIds)
-    .filter((userId) => isTypeEnabled(prefsByUser.get(userId), "result")) // no profile row -> default (enabled)
-    .map((userId) => ({
-      user_id: userId,
+  const summary = await notify(
+    Array.from(userIds).map((userId) => ({
+      userId,
+      event: "ANSWER_KEY_AVAILABLE" as const,
       title,
       body,
-      type: "result" as const,
-      dedupe_key: `answerkey:${paperId}:v${paper.answer_key_version}`,
-    }));
-  if (rows.length === 0) return { notified: 0 };
-
-  const { data: inserted, error } = await supabase
-    .from("notifications")
-    .upsert(rows, { onConflict: "user_id,dedupe_key", ignoreDuplicates: true })
-    .select("user_id");
-  if (error) return { error: error.message };
-  return { notified: inserted?.length ?? 0 };
+      dedupeKey: `answerkey:${paperId}:v${paper.answer_key_version}`,
+      linkUrl: "/answer-key",
+    })),
+    supabase,
+  );
+  if (summary.failed > 0 && summary.created === 0) return { error: "Could not send notifications. Please try again." };
+  return { notified: summary.created };
 }

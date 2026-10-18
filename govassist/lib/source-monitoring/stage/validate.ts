@@ -47,6 +47,9 @@ export function validateStageUpdate(i: StageValidationInput): StageValidation {
   if (i.typeAmbiguous) reasons.push("The title matches more than one stage (for example answer key and result).");
   if (i.dateAmbiguous) reasons.push("The title contains dates that could not be read as one date or one range.");
   if (type === "exam_date" && !i.update.eventDate) reasons.push("The exam date is not stated explicitly in the title.");
+  if ((type === "application_end_date_change" || type === "application_start_date") && !i.update.eventDate) {
+    reasons.push("The application date is not stated explicitly in the title.");
+  }
   if (type === "cutoff" && !i.update.extractedFields.some((f) => f.label === "Cutoff" && f.confidence === "high")) {
     reasons.push("The cut-off value was not extracted with high confidence.");
   }

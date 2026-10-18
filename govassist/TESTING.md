@@ -263,3 +263,61 @@ changes nothing; the expected result of each query is written next to it.
   `supabase/tests/phase13_rls_check.sql` in the Supabase SQL editor (edit the ids).
 - Live official websites are NOT tested: the only parser in the repo is a template.
   A real source needs a real, fixture-tested parser before it is enabled.
+
+## Phase 14 — notification engine
+
+- Pure logic + in-memory-store tests: `lib/notifications/__tests__/` (events,
+  preferences, relevance, deadline reminders, inbox, eligibility changes),
+  `lib/notifications/engine/__tests__/` (service: preferences/dedupe/revisions/
+  privacy; delivery: states, retries, backoff, concurrent claim; email channel
+  with a fake `fetch`; webhook signature + `delivered` handling) and
+  `lib/application-requests/__tests__/notify.test.ts` (request notifications through
+  the real engine). Run with `npm test`.
+- RLS cannot be proven by vitest. After applying migration 0020, run
+  `supabase/tests/phase14_rls_check.sql` in the Supabase SQL editor (edit the ids).
+- NOT tested against the real world: Resend itself (the email channel is tested with a
+  fake `fetch`; the webhook is tested with a signature computed in the test, not one
+  produced by Resend), the Vercel cron trigger, and the notification/settings screens
+  (no browser tests). Push notifications are not implemented.
+- Manual email check: set `RESEND_API_KEY`, `EMAIL_FROM`, turn on "Also email me",
+  trigger an update, then look at `notification_deliveries` (`sent`; `delivered` only
+  after the Resend webhook arrives).
+
+## Phase 15 — automation control center
+
+- Decision rules are pure and tested: `lib/automation/__tests__/rules.test.ts` (cycle
+  timing, source health, retry-safety rules), `lib/automation/__tests__/ops.test.ts`
+  (every admin action: what it does, what it refuses, that each attempt is audited,
+  that an uncertain/rejected update is never published by a retry, that clearing the
+  parser flag also resets the stored page hash) and
+  `lib/application-requests/__tests__/admin-queues.test.ts` (overdue + queue counts).
+- Admin authorization lives in `lib/actions/automation-admin.ts` (`requireAdmin()` before
+  the service-role client is created). Like the other admin actions it is NOT covered by an
+  automated test: check it by hand - open `/admin/automation` signed in as a non-admin and
+  confirm you only see "You don't have access to this", and that none of the buttons work.
+- RLS cannot be proven by vitest. After applying migration 0021, run
+  `supabase/tests/phase15_rls_check.sql` in the Supabase SQL editor (edit the two ids).
+- Not tested against real websites: source checks, parsers and the cron trigger. The page
+  itself has no browser tests.
+
+## Phase 16 - integration audit fixes
+
+No npm command was run while making these changes. Run them yourself, in this order:
+`npm run typecheck`, then `npm test`, then `npm run lint`, then `npm run build`.
+
+New/updated tests (written, NOT executed by the assistant):
+- `lib/source-monitoring/stage/__tests__/prepare-patch.test.ts` - an application start/end
+  date is never taken from the notice's publication date.
+- `lib/pyq/__tests__/load-options.test.ts` - answer options are loaded per paper, in batches,
+  and a failed batch is an error (never a partial list).
+- `lib/pyq/__tests__/supported.test.ts` - multiple-correct questions hold a paper back.
+- `lib/automation/__tests__/cron.test.ts` - constant-time cron auth, bounded/stalest-first
+  source selection, time budget.
+- `lib/auth/__tests__/admin-decision.test.ts` - the shared admin rule fails closed.
+
+Manual checks (cannot be covered by vitest):
+- Upload a `.txt` renamed to `.pdf` on /documents: it must be refused.
+- Upload a real PDF on /documents/<type>: fields appear BLANK; "Confirm" on a blank field
+  must say to type the value first; after typing and confirming all fields, "Apply to profile" works.
+- Open /admin/automation and /admin/application-requests as a non-admin: no data, no working buttons.
+- Call `/api/cron/check-sources` without the secret: 401; with a wrong secret: 401.

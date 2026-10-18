@@ -4,6 +4,7 @@ import { requireUser } from "./session";
 import { MISSING_SUPABASE_CONFIG_MESSAGE } from "@/lib/env";
 import { startAttemptAction, submitAttemptAction } from "./pyq";
 import { Database } from "@/lib/supabase/database.types";
+import { bytesMatchMime, normalizeMime } from "@/lib/application-requests/file-validation";
 
 const BUCKET = "documents"; // reused — see 0012's file header for why
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
@@ -84,6 +85,13 @@ export async function uploadResponseSheetAction(paperId: string, formData: FormD
   if (file.size > MAX_FILE_BYTES) return { error: "That file is too large — the limit is 10MB." };
   if (!ALLOWED_MIME_TYPES.includes(file.type)) return { error: "Only PDF, JPG, and PNG files are supported." };
 
+  // Phase 16: check the real leading bytes, not just the browser-declared type.
+  const head = new Uint8Array(await file.slice(0, 16).arrayBuffer());
+  const declaredMime = normalizeMime(file.type);
+  if (!declaredMime || !bytesMatchMime(head, declaredMime)) {
+    return { error: "This file looks damaged or isn't really a PDF, JPG or PNG. Please choose the original file." };
+  }
+
   const { data: paper } = await supabase.from("papers").select("id").eq("id", paperId).eq("status", "published").maybeSingle();
   if (!paper) return { error: "Paper not found." };
 
@@ -126,6 +134,7 @@ export async function getResponseSheetUploadsAction(paperId: string): Promise<{ 
     .from("response_sheet_uploads")
     .select("*")
     .eq("paper_id", paperId)
+    .eq("user_id", result.user.id)
     .order("created_at", { ascending: false });
 
   if (error) return { error: error.message, uploads: [] };
@@ -161,11 +170,21 @@ export async function recalculateAttemptAction(attemptId: string): Promise<{ err
   if (!attempt || attempt.user_id !== user.id) return { error: "Attempt not found." };
   if (attempt.status !== "submitted") return { error: "Only a submitted attempt can be recalculated." };
 
-  const { error: revertError } = await supabase.from("paper_attempts").update({ status: "in_progress" }).eq("id", attemptId);
+  const { error: revertError } = await supabase
+    .from("paper_attempts")
+    .update({ status: "in_progress" })
+    .eq("id", attemptId)
+    .eq("user_id", user.id)
+    .eq("status", "submitted");
   if (revertError) return { error: revertError.message };
 
-  const submitResult = await submitAttemptAction(attemptId);
-  if (submitResult.error) return { error: submitResult.error };
+  const submitResult = await submitAttemptAction(attemptId, { preserveTiming: true });
+  if (submitResult.error) {
+    // Phase 16: a failed recalculation must leave the attempt exactly as it was — a finished
+    // attempt with its old score — not stuck "in progress" (which hid it from history).
+    await supabase.from("paper_attempts").update({ status: "submitted" }).eq("id", attemptId).eq("user_id", user.id).eq("status", "in_progress");
+    return { error: submitResult.error };
+  }
   return { success: true };
 }
 

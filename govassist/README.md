@@ -73,10 +73,11 @@ Nothing about either *result* is mock data — only the exam catalog they're com
 against (see below). See "The eligibility engine" and "The notification system"
 sections for how each works.
 
-**Simulated, not silently pretended:** OCR extraction. There's no provider key wired
-in — `lib/ocr/extract.ts` returns plausible sample values with deliberately mixed
-confidence so the review UI is genuinely exercised, and the file at the top of that
-function documents exactly what to change to wire a real provider. Every other part of
+**Not connected:** OCR extraction. There's no provider key wired in — as of Phase 16
+`lib/ocr/extract.ts` returns the field labels with BLANK values (it no longer invents
+sample data), so the person types in what their document says and confirms each field.
+The file at the top of that function documents exactly what to change to wire a real
+provider. Every other part of
 the vault (storage security, the review gate, status lifecycle) is real and doesn't
 change when OCR does.
 
@@ -305,7 +306,7 @@ Tokens live in `tailwind.config.ts` (colors, radius, shadows) and `app/layout.ts
   `profiles.saved_exam_slugs` has no foreign key to the exam catalog (that was the
   point of the slug design), so saving a mock exam persists correctly right now. What's
   not real yet is the catalog those saved slugs point at.
-- **OCR is simulated, not real** — see `lib/ocr/extract.ts`. Everything around it
+- **OCR is not connected** — see `lib/ocr/extract.ts` (fields start blank; manual entry + review). Everything around it
   (storage security, the field-by-field review gate, status lifecycle) is real.
 - The eligibility engine doesn't model PwBD-specific age relaxation (only
   category-based) — it simply doesn't check it, rather than fake a number.

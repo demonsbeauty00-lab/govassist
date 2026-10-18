@@ -29,11 +29,16 @@ export function buildExamCycleUpdate(update: DetectedUpdateRow, currentStatus: C
   };
 
   switch (update.update_type) {
+    // Phase 16: these used to copy the notice's PUBLICATION date into the cycle, which
+    // turned "deadline extended" notices into a deadline equal to the day the notice was
+    // posted. Only a date explicitly read from the notice is written; otherwise the cycle
+    // is left untouched (validate.ts sends such notices to admin review).
     case "application_start_date":
-      set("application_start_date", update.publication_date);
+      set("application_start_date", update.event_date);
       break;
     case "application_end_date_change":
-      set("application_end_date", update.publication_date);
+      // A range ("from X to Y") means Y is the new last date; a single date is the new last date.
+      set("application_end_date", field(update, "Event end date") ?? update.event_date);
       break;
     case "exam_date":
       if (update.event_date) {

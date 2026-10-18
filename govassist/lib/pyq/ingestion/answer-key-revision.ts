@@ -1,6 +1,7 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { hashDocument } from "./hash";
+import { loadOptionsAdmin } from "@/lib/pyq/load-options-admin";
 
 export interface AnswerKeyRevisionEntry {
   questionNumber: number;
@@ -93,7 +94,8 @@ export async function applyAnswerKeyRevision(paperId: string, input: AnswerKeyRe
   }
 
   const { data: questions } = await supabase.from("questions").select("*").eq("paper_id", paperId);
-  const { data: options } = await supabase.from("question_options").select("*");
+  // Phase 16: only this paper's options (the old unfiltered read could be cut off at 1000 rows).
+  const options = await loadOptionsAdmin(supabase, (questions ?? []).map((q) => q.id));
   const questionByNumber = new Map((questions ?? []).map((q) => [q.question_number, q]));
   const optionsByQuestion = new Map<string, typeof options>();
   for (const opt of options ?? []) {

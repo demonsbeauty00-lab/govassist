@@ -137,8 +137,12 @@ describe("updateRequestStatusAction (Phase 11)", () => {
     expect(upd.payload.submitted_on_portal_at).toBeUndefined();
     const ev = (writes(h.state.adminCalls, "application_request_events", "insert")[0] as unknown as { payload: R[] }).payload[0]!;
     expect(ev.to_status).toBe("form_filled");
-    const note = (writes(h.state.adminCalls, "notifications", "upsert")[0] as unknown as { payload: R }).payload;
+    // Phase 14: goes through the central engine, which upserts an array of rows.
+    const note = (writes(h.state.adminCalls, "notifications", "upsert")[0] as unknown as { payload: R[] }).payload[0]!;
     expect(note.dedupe_key).toBe(`apprequest:${REQ}:ev-1`);
+    expect(note.event_type).toBe("APPLICATION_REQUEST_FORM_FILLED");
+    expect(note.link_url).toBe(`/apply-assistant/${REQ}`);
+    expect(note.user_id).toBe("user-1"); // the request's owner, nobody else
     expect(String(note.body)).not.toContain("01-01-1999"); // admin free text never goes into notifications
   });
 
@@ -340,9 +344,11 @@ describe("syncRequestsForOfficialUpdate (official-update integration)", () => {
     expect(String(ev.message)).toMatch(/not checked your individual application/);
     const upd = writes(h.state.adminCalls, "application_requests", "update")[0] as unknown as { payload: R };
     expect(upd.payload.official_stage).toBe("admit_card");
-    const note = (writes(h.state.adminCalls, "notifications", "upsert")[0] as unknown as { payload: R }).payload;
+    const note = (writes(h.state.adminCalls, "notifications", "upsert")[0] as unknown as { payload: R[] }).payload[0]!;
     expect(note.dedupe_key).toBe("update:upd-1");
-    expect(note.type).toBe("admit_card");
+    expect(note.type).toBe("system");
+    expect(note.event_type).toBe("APPLICATION_STATUS_CHANGED");
+    expect(note.link_url).toBe("/apply-assistant/r1");
   });
 
   it("does not advance an unsubmitted request's stage, but still records the notice", async () => {

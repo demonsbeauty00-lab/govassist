@@ -12,14 +12,15 @@ import {
   TERMINAL_STATUSES, type RequestStatus,
 } from "@/lib/application-requests/constants";
 import {
-  actionDoneSchema, createRequestSchema, examKeyFor, requestChangesSchema, userReplySchema,
+  actionDoneSchema, createRequestSchema, examKeyFor, requestChangesSchema, todayIST, userReplySchema,
 } from "@/lib/application-requests/schema";
 import { canUserCancel, canUserCompleteAction, canUserReply, canUserReviewForm } from "@/lib/application-requests/transitions";
 import { bytesMatchMime, safeFileName, sniffMime, validateUploadMeta } from "@/lib/application-requests/file-validation";
 import { MAX_FILE_BYTES } from "@/lib/application-requests/constants";
 import { isOwner } from "@/lib/application-requests/authz";
 import { applicantDeletableDocuments, interpretConditionalUpdate } from "@/lib/application-requests/workflow";
-import { ASSIST_PHONE_DISPLAY } from "@/lib/application-requests/contact";
+import { buildStatusNotification } from "@/lib/application-requests/notify-text";
+import { notifyRequestUser, supabaseRequestNotificationStore } from "@/lib/application-requests/notify";
 
 const BUCKET = "documents"; // existing PRIVATE bucket; owner-only storage RLS (0001)
 const MAX_ACTIVE_REQUESTS_PER_USER = 10;
@@ -160,9 +161,17 @@ export async function createApplicationRequestAction(formData: FormData): Promis
     // come from the database, never from the form, so the link is to the
     // correct cycle (verified official updates are matched on this id).
     const { data: cycle } = await supabase
-      .from("exam_cycles").select("id, exam_id, cycle_label, status").eq("id", input.examCycleId).maybeSingle();
+      .from("exam_cycles").select("id, exam_id, cycle_label, status, application_end_date").eq("id", input.examCycleId).maybeSingle();
     if (!cycle || cycle.status !== "published") {
       return { error: "That exam cycle isn't available.", fieldErrors: { examCycleId: "Choose a listed cycle." } };
+    }
+    // Phase 16: the verified application window for this cycle has closed — don't take a request
+    // that cannot be completed. (A later verified deadline extension updates the cycle and reopens this.)
+    if (cycle.application_end_date && cycle.application_end_date < todayIST()) {
+      return {
+        error: `Applications for this cycle closed on ${cycle.application_end_date}. If the official last date has been extended, we will list it once it is verified.`,
+        fieldErrors: { examCycleId: "The application window for this cycle has closed." },
+      };
     }
     const { data: exam } = await supabase.from("exams").select("slug, short_name").eq("id", cycle.exam_id).maybeSingle();
     if (!exam) return { error: "That exam cycle isn't available.", fieldErrors: { examCycleId: "Choose a listed cycle." } };
@@ -293,19 +302,21 @@ export async function createApplicationRequestAction(formData: FormData): Promis
   });
 
   // In-app notification with the assistance number. Best-effort: the request
-  // is already saved, so a failure here must never fail the submission.
+  // is already saved, so a failure here must never fail the submission. Goes
+  // through the shared helper (preferences + dedupe) and says plainly that
+  // nothing has been submitted on the official portal.
   try {
     const { data: row } = await supabase.from("application_requests").select("request_code").eq("id", requestId).maybeSingle();
-    await createAdminClient().from("notifications").upsert(
-      {
-        user_id: user.id,
-        title: `Request ${row?.request_code ?? ""} submitted`.trim(),
-        body: `For faster help, WhatsApp, call or SMS ${ASSIST_PHONE_DISPLAY} and quote your request ID.`,
-        type: "system" as const,
-        dedupe_key: `apprequest:${requestId}:submitted`,
-      },
-      { onConflict: "user_id,dedupe_key", ignoreDuplicates: true },
-    );
+    const content = buildStatusNotification({ status: "submitted", requestCode: row?.request_code ?? "", officiallySubmitted: false });
+    await notifyRequestUser({
+      store: supabaseRequestNotificationStore(createAdminClient()),
+      userId: user.id,
+      requestId,
+      dedupeSuffix: "submitted",
+      event: "APPLICATION_REQUEST_SUBMITTED",
+      title: content.title.trim(),
+      body: content.body,
+    });
   } catch {
     // ignore — notification is a convenience, not part of the submission
   }

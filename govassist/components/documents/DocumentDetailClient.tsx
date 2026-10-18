@@ -172,8 +172,9 @@ export function DocumentDetailClient({ documentType, initialDocument }: { docume
         <Card className="p-4">
           <p className="text-sm font-semibold text-ink">Extracted information</p>
           <p className="mt-1 text-sm text-ink-muted">
-            Pulled automatically — OCR can make mistakes. Review each field below; edited or
-            confirmed fields are marked accordingly.
+            Automatic reading of documents is not switched on yet, so these fields start blank.
+            Type in what your document says, then confirm each field. Nothing reaches your
+            profile until you have confirmed every field.
           </p>
           <div className="mt-1">
             {fields.map((field) => (

@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { examCycleRowToRules } from "./from-db-row";
 import { profileToApplicant } from "./from-profile";
 import { profileFingerprint } from "./fingerprint";
+import { notifyEligibilityChanges } from "@/lib/notifications/eligibility-change";
 import { buildCycleInput, isCorrigendumPending, planResultRow, type CycleInput, type ExistingResult, type ResultRow } from "./plan";
 
 // ---------------------------------------------------------------------------
@@ -92,6 +93,7 @@ export async function reevaluateUser(userId: string, client?: Admin): Promise<Us
     if (row) rows.push(row);
   }
   const ok = rows.length === 0 || (await upsertRows(admin, rows));
+  if (ok && rows.length > 0) await notifyEligibilityChanges(admin, rows);
 
   // Results for cycles that are no longer published are removed.
   const live = new Set(cycles.map((c) => c.id));
@@ -151,6 +153,7 @@ export async function reevaluateCycle(cycleId: string, client?: Admin): Promise<
     if (rows.length > 0) {
       if (!(await upsertRows(admin, rows))) { failed = true; break; }
       written += rows.length;
+      await notifyEligibilityChanges(admin, rows);
     }
     if (page.length < PAGE_SIZE) break;
   }

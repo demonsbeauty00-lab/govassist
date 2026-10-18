@@ -2,6 +2,8 @@
 
 import { requireUser } from "./session";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { loadOptionsAdmin } from "@/lib/pyq/load-options-admin";
+import { findUnsupportedScoring } from "@/lib/pyq/supported";
 import { MISSING_SUPABASE_CONFIG_MESSAGE } from "@/lib/env";
 import { paperRowToDetail, paperRowToSummary } from "@/lib/pyq/from-db-row";
 import { resolveMarks, ScoringAnswer } from "@/lib/pyq/scoring";
@@ -82,13 +84,14 @@ export async function getPaperDetailAction(paperId: string): Promise<{ error?: s
 
 async function loadPaperQuestionsForScoring(paperId: string) {
   const admin = createAdminClient();
-  const [{ data: questions }, { data: options }, { data: schemes }, { data: sections }] = await Promise.all([
+  const [{ data: questions }, { data: schemes }, { data: sections }] = await Promise.all([
     admin.from("questions").select("*").eq("paper_id", paperId).eq("status", "published").order("question_number", { ascending: true }),
-    admin.from("question_options").select("*"),
     admin.from("marking_schemes").select("*").eq("paper_id", paperId),
     admin.from("paper_sections").select("*").eq("paper_id", paperId),
   ]);
-  return { questions: questions ?? [], options: options ?? [], schemes: schemes ?? [], sections: sections ?? [] };
+  // Phase 16: only this paper's options (the old unfiltered read could be cut off at 1000 rows).
+  const options = await loadOptionsAdmin(admin, (questions ?? []).map((q) => q.id));
+  return { questions: questions ?? [], options, schemes: schemes ?? [], sections: sections ?? [] };
 }
 
 export async function startAttemptAction(
@@ -128,15 +131,23 @@ export async function startAttemptAction(
   // Three more independent reads (none depends on another's result) — same
   // parallelization loadPaperQuestionsForScoring already uses elsewhere in
   // this file; this call site just hadn't been updated to match.
-  const [{ data: questionRows }, { data: optionRows }, { data: schemeRows }] = await Promise.all([
+  const [{ data: questionRows }, { data: schemeRows }] = await Promise.all([
     admin.from("questions").select("*").eq("paper_id", paperId).eq("status", "published").order("question_number", { ascending: true }),
-    admin.from("question_options").select("*"),
     admin.from("marking_schemes").select("*").eq("paper_id", paperId),
   ]);
+  // Phase 16: only this paper's options (the old unfiltered read could be cut off at 1000 rows).
+  let optionRows: Awaited<ReturnType<typeof loadOptionsAdmin>>;
+  try {
+    optionRows = await loadOptionsAdmin(admin, (questionRows ?? []).map((q) => q.id));
+  } catch {
+    return { error: "We couldn't load this paper's answer options. Please try again." };
+  }
 
   if (!questionRows || questionRows.length === 0) {
     return { error: "This paper doesn't have any published questions yet." };
   }
+  const unsupportedStart = findUnsupportedScoring(questionRows);
+  if (unsupportedStart) return { error: unsupportedStart };
 
   const optionsByQuestion = new Map<string, typeof optionRows>();
   for (const opt of optionRows ?? []) {
@@ -256,7 +267,10 @@ export async function saveAttemptAnswerAction(attemptId: string, answer: Attempt
   return { saved: true };
 }
 
-export async function submitAttemptAction(attemptId: string): Promise<{ error?: string; result?: AttemptResult }> {
+export async function submitAttemptAction(
+  attemptId: string,
+  submitOptions: { preserveTiming?: boolean } = {}
+): Promise<{ error?: string; result?: AttemptResult }> {
   const result = await requireUser();
   if (!result.ok) return { error: MISSING_SUPABASE_CONFIG_MESSAGE };
   const { supabase, user } = result;
@@ -271,7 +285,15 @@ export async function submitAttemptAction(attemptId: string): Promise<{ error?: 
   }
 
   const { data: paperRow } = await supabase.from("papers").select("title, answer_key_version, answer_key_status").eq("id", attempt.paper_id).maybeSingle();
-  const { questions, options, schemes, sections } = await loadPaperQuestionsForScoring(attempt.paper_id);
+  let loaded: Awaited<ReturnType<typeof loadPaperQuestionsForScoring>>;
+  try {
+    loaded = await loadPaperQuestionsForScoring(attempt.paper_id);
+  } catch {
+    return { error: "We couldn't load this paper to score it. Your answers are saved — please try submitting again." };
+  }
+  const { questions, options, schemes, sections } = loaded;
+  const unsupportedSubmit = findUnsupportedScoring(questions);
+  if (unsupportedSubmit) return { error: unsupportedSubmit };
   const { data: savedAnswers } = await supabase.from("paper_attempt_answers").select("*").eq("attempt_id", attemptId);
 
   const sectionNameById = new Map(sections.map((s) => [s.id, s.name]));
@@ -356,14 +378,23 @@ export async function submitAttemptAction(attemptId: string): Promise<{ error?: 
       .eq("id", a.id);
   }
 
-  const timeTakenSeconds = Math.max(0, Math.round((Date.now() - new Date(attempt.started_at).getTime()) / 1000));
+  // Phase 16: a recalculation re-scores answers only. The original submission time and time taken are
+  // history and must not be rewritten to "now" (it used to inflate time taken on every recalculation).
+  const keepTiming = submitOptions.preserveTiming === true && attempt.submitted_at !== null && attempt.time_taken_seconds !== null;
+  const timeTakenSeconds = keepTiming
+    ? (attempt.time_taken_seconds as number)
+    : Math.max(0, Math.round((Date.now() - new Date(attempt.started_at).getTime()) / 1000));
+  const submittedAtIso = keepTiming ? (attempt.submitted_at as string) : new Date().toISOString();
   const markedForReviewCount = (savedAnswers ?? []).filter((a) => a.is_marked_for_review).length;
 
-  const { error: updateError } = await supabase
+  // Phase 16: compare-and-set. Only an attempt that is STILL in progress can be finalised, so two
+  // overlapping submits (double click, auto-submit timer racing a click) can never both write a
+  // score; the loser re-reads and returns the stored result.
+  const { data: finalised, error: updateError } = await supabase
     .from("paper_attempts")
     .update({
       status: "submitted",
-      submitted_at: new Date().toISOString(),
+      submitted_at: submittedAtIso,
       time_taken_seconds: timeTakenSeconds,
       attempted_count: calc.attempted,
       marked_for_review_count: markedForReviewCount,
@@ -379,9 +410,13 @@ export async function submitAttemptAction(attemptId: string): Promise<{ error?: 
       answer_key_version_at_submission: paperRow?.answer_key_version ?? 0,
       updated_at: new Date().toISOString(),
     })
-    .eq("id", attemptId);
+    .eq("id", attemptId)
+    .eq("user_id", user.id)
+    .eq("status", "in_progress")
+    .select("id");
 
   if (updateError) return { error: updateError.message };
+  if (!finalised || finalised.length === 0) return getAttemptResultAction(attemptId);
 
   return {
     result: {
@@ -466,7 +501,13 @@ export async function getAttemptReviewAction(attemptId: string): Promise<{ error
   const { data: savedAnswers } = await supabase.from("paper_attempt_answers").select("*").eq("attempt_id", attemptId);
   const answerByQuestion = new Map((savedAnswers ?? []).map((a) => [a.question_id, a]));
 
-  const { questions, options, schemes } = await loadPaperQuestionsForScoring(attempt.paper_id);
+  let reviewData: Awaited<ReturnType<typeof loadPaperQuestionsForScoring>>;
+  try {
+    reviewData = await loadPaperQuestionsForScoring(attempt.paper_id);
+  } catch {
+    return { error: "We couldn't load this paper's review. Please try again.", questions: [] };
+  }
+  const { questions, options, schemes } = reviewData;
   const optionsByQuestion = new Map<string, typeof options>();
   for (const opt of options) {
     const list = optionsByQuestion.get(opt.question_id) ?? [];

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { getTopBarInfoAction } from "@/lib/actions/dashboard";
+import { NOTIFICATIONS_CHANGED_EVENT } from "@/lib/notifications/inbox";
 
 export interface TopBarInfo {
   fullName: string | null;
@@ -42,11 +43,17 @@ export function useTopBarInfo(): TopBarInfo | null {
 
   useEffect(() => {
     let cancelled = false;
-    fetchTopBarInfo().then((result) => {
-      if (!cancelled) setInfo(result);
-    });
+    const refresh = () => {
+      fetchTopBarInfo().then((result) => {
+        if (!cancelled) setInfo(result);
+      });
+    };
+    refresh();
+    // Phase 14: the notification list announces read-state changes so the bell badge updates.
+    window.addEventListener(NOTIFICATIONS_CHANGED_EVENT, refresh);
     return () => {
       cancelled = true;
+      window.removeEventListener(NOTIFICATIONS_CHANGED_EVENT, refresh);
     };
   }, []);
 

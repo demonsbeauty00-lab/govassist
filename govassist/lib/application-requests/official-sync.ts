@@ -1,7 +1,7 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { isTypeEnabled } from "@/lib/notifications/preferences";
-import { notificationTypeForUpdate } from "@/lib/notifications/relevance";
+import { categoryForUpdateType, requestLink } from "@/lib/notifications/events";
+import { notify } from "@/lib/notifications/engine";
 import type { RequestStatus } from "./constants";
 import { planOfficialUpdate, type OfficialUpdateType } from "./official-stage";
 
@@ -59,11 +59,6 @@ export async function syncRequestsForOfficialUpdate(
   result.matched = rows.length;
   if (rows.length === 0) return result;
 
-  const { data: profiles } = await admin
-    .from("profiles").select("user_id, notification_preferences").in("user_id", rows.map((r) => r.user_id));
-  const prefsByUser = new Map((profiles ?? []).map((p) => [p.user_id, p.notification_preferences]));
-  const notificationType = notificationTypeForUpdate(params.updateType);
-
   for (const r of rows) {
     const plan = planOfficialUpdate({
       updateId: params.updateId,
@@ -106,22 +101,23 @@ export async function syncRequestsForOfficialUpdate(
     }
     result.recorded += 1;
 
-    if (!isTypeEnabled(prefsByUser.get(r.user_id) ?? null, notificationType)) continue;
-    const { data: inserted, error: nErr } = await admin.from("notifications").upsert(
-      {
-        user_id: r.user_id,
-        title: plan.notificationTitle,
-        body: plan.notificationBody,
-        type: notificationType,
-        dedupe_key: plan.notificationDedupeKey,
-      },
-      { onConflict: "user_id,dedupe_key", ignoreDuplicates: true },
-    ).select("user_id");
-    if (nErr) {
-      console.error("official-sync: notification failed", nErr.code);
+    // Phase 14: through the central engine (preference check, dedupe, channels).
+    // Owner only; the link goes to the owner's own request. The event is the
+    // OFFICIAL status of the application, kept separate from the request status.
+    const summary = await notify([{
+      userId: r.user_id,
+      event: "APPLICATION_STATUS_CHANGED",
+      category: categoryForUpdateType(params.updateType),
+      title: plan.notificationTitle,
+      body: plan.notificationBody,
+      dedupeKey: plan.notificationDedupeKey,
+      linkUrl: requestLink(r.id),
+    }], admin);
+    if (summary.failed > 0) {
+      console.error("official-sync: notification failed");
       result.failed += 1;
     } else {
-      result.notified += (inserted ?? []).length;
+      result.notified += summary.created;
     }
   }
   return result;

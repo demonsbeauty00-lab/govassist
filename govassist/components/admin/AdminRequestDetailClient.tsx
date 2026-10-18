@@ -14,8 +14,9 @@ import {
 import { ASSISTANCE_LABEL, OFFICIAL_STAGE_LABEL, STATUS_LABEL, TERMINAL_STATUSES } from "@/lib/application-requests/constants";
 import { allowedAdminTargets } from "@/lib/application-requests/transitions";
 import { canAdvanceOfficialStage, isOfficiallySubmitted } from "@/lib/application-requests/official-stage";
-import { MANUAL_OFFICIAL_STAGES } from "@/lib/application-requests/schema";
+import { MANUAL_OFFICIAL_STAGES, todayIST } from "@/lib/application-requests/schema";
 import { timelineLabel } from "@/lib/application-requests/timeline";
+import { isOverdueRequest } from "@/lib/application-requests/admin-queues";
 
 const inputCls = "w-full rounded border border-hairline bg-paper-raised px-3.5 py-2.5 text-[15px] text-ink focus-visible:border-brand-600";
 
@@ -71,7 +72,7 @@ export function AdminRequestDetailClient({ detail }: { detail: AdminRequestDetai
           <div><dt className="text-ink-faint">Applicant</dt><dd className="text-ink">{request.applicant_name}</dd></div>
           <div><dt className="text-ink-faint">Mobile</dt><dd className="text-ink">{request.applicant_phone}</dd></div>
           <div><dt className="text-ink-faint">Submitted</dt><dd className="text-ink">{new Date(request.created_at).toLocaleString()}</dd></div>
-          <div><dt className="text-ink-faint">Deadline (entered by applicant — verify)</dt><dd className="text-ink">{request.application_deadline ?? "Not provided"}</dd></div>
+          <div><dt className="text-ink-faint">Deadline (entered by applicant — verify)</dt><dd className="text-ink">{request.application_deadline ?? "Not provided"}{isOverdueRequest(request, todayIST()) && <span className="ml-2 font-medium text-ineligible-fg">Overdue – the last date has passed; check the official notice</span>}</dd></div>
           {request.post_applied && <div><dt className="text-ink-faint">Post</dt><dd className="text-ink">{request.post_applied}</dd></div>}
           {request.notification_url && (
             <div className="sm:col-span-2"><dt className="text-ink-faint">Notification link (entered by applicant — verify it)</dt>

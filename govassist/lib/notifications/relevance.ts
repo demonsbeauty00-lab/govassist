@@ -21,7 +21,8 @@
 // ---------------------------------------------------------------------------
 
 import { Database } from "@/lib/supabase/database.types";
-import { isEligibleAlertEnabled, isTypeEnabled, NotificationPreferences, NotificationType } from "./preferences";
+import { isCategoryEnabled, isEligibleAlertEnabled, NotificationPreferences, NotificationType } from "./preferences";
+import { categoryForUpdateType } from "./events";
 
 export type UpdateType = Database["public"]["Tables"]["detected_updates"]["Row"]["update_type"];
 export type RecipientReason = "applied" | "saved" | "eligible";
@@ -75,14 +76,14 @@ export function decideRecipients(params: {
   examCategory: string | null;
   candidates: RecipientCandidate[];
 }): Recipient[] {
-  const type = notificationTypeForUpdate(params.updateType);
+  const category = categoryForUpdateType(params.updateType);
   const discovery = isDiscoveryUpdate(params.updateType);
   const seen = new Set<string>();
   const recipients: Recipient[] = [];
 
   for (const c of params.candidates) {
     if (seen.has(c.userId)) continue; // never notify one user twice
-    if (!isTypeEnabled(c.preferences, type)) continue;
+    if (!isCategoryEnabled(c.preferences, category)) continue;
 
     let reason: RecipientReason | null = null;
     if (c.applied) reason = "applied";

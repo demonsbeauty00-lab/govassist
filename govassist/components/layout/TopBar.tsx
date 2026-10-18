@@ -4,7 +4,7 @@ import { useState, useTransition, SVGProps } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { BackArrowIcon, BellIcon } from "@/components/ui/Icons";
-import { demoNotifications } from "@/lib/mock-data";
+import { useTopBarInfo } from "@/lib/hooks/useTopBarInfo";
 import { signOutAction } from "@/lib/actions/auth";
 
 interface TopBarProps {
@@ -36,7 +36,7 @@ function LogoutIcon(props: SVGProps<SVGSVGElement>) {
 
 export function TopBar({ title, showBack, showBell = true }: TopBarProps) {
   const router = useRouter();
-  const unreadCount = demoNotifications.filter((n) => !n.isRead).length;
+  const unreadCount = useTopBarInfo()?.unreadNotificationCount ?? 0;
   const [loggingOut, startLogoutTransition] = useTransition();
   const [confirmingLogout, setConfirmingLogout] = useState(false);
 

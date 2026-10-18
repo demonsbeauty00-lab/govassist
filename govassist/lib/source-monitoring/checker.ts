@@ -57,7 +57,14 @@ export async function checkSource(source: SourceRow): Promise<CheckSourceResult>
   if (!fetchResult.ok || !fetchResult.content || !fetchResult.contentHash) {
     await supabase
       .from("notification_sources")
-      .update({ last_checked_at: now, last_error: fetchResult.error, updated_at: now })
+      .update({
+        last_checked_at: now,
+        last_error: fetchResult.error,
+        // Phase 15: lets the control center tell a one-off blip from a source that has been down.
+        // Nothing already verified or published is touched by a failed check.
+        consecutive_failures: (source.consecutive_failures ?? 0) + 1,
+        updated_at: now,
+      })
       .eq("id", source.id);
     await supabase.from("source_audit_log").insert({
       source_id: source.id,
@@ -76,6 +83,7 @@ export async function checkSource(source: SourceRow): Promise<CheckSourceResult>
       last_checked_at: now,
       last_success_at: now,
       last_error: null,
+      consecutive_failures: 0,
       last_content_hash: fetchResult.contentHash,
       updated_at: now,
     })
@@ -251,7 +259,9 @@ export async function getDueSources(): Promise<SourceRow[]> {
     .eq("enabled", true)
     .eq("needs_parser_maintenance", false);
 
-  if (error || !data) return [];
+  // Phase 16: a failed read must not look like "nothing is due" — the cron route records the run as failed.
+  if (error) throw new Error(`Could not read notification sources: ${error.message}`);
+  if (!data) return [];
 
   const now = Date.now();
   return data.filter((source: SourceRow) => {

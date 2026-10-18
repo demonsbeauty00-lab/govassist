@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/Button";
 import { ChevronRightIcon } from "@/components/ui/Icons";
 import { signOutAction } from "@/lib/actions/auth";
 import { getNotificationPreferencesAction, updateNotificationPreferenceAction } from "@/lib/actions/notification-preferences";
-import { PreferenceKey } from "@/lib/notifications/preferences";
+import { PREFERENCE_LABELS, PreferenceKey } from "@/lib/notifications/preferences";
 
 export default function SettingsPage() {
   // Real, persisted preferences (profiles.notification_preferences) — null
@@ -72,47 +72,21 @@ export default function SettingsPage() {
             Alerts only come from verified official updates, and only for exams that are relevant to you.
           </p>
           {prefsError && <p className="mt-2 text-sm text-ineligible-fg">{prefsError}</p>}
+          <p className="mt-2 text-xs text-ink-faint">
+            Essential account and security emails (sign-in confirmation, password reset) are sent by the sign-in system and are not controlled by these switches.
+          </p>
           <div className="mt-1 divide-y divide-hairline">
-            <Toggle
-              id="deadline"
-              label="Deadline & application alerts"
-              description="Applications opening, deadline changes"
-              checked={prefs?.deadline ?? false}
-              disabled={!prefs || savingKey === "deadline"}
-              onChange={(v) => updatePref("deadline", v)}
-            />
-            <Toggle
-              id="admitcard"
-              label="Admit card alerts"
-              description="When an admit card is released"
-              checked={prefs?.admit_card ?? false}
-              disabled={!prefs || savingKey === "admit_card"}
-              onChange={(v) => updatePref("admit_card", v)}
-            />
-            <Toggle
-              id="result"
-              label="Answer key & result alerts"
-              description="Answer keys, response sheets, results and cutoffs"
-              checked={prefs?.result ?? false}
-              disabled={!prefs || savingKey === "result"}
-              onChange={(v) => updatePref("result", v)}
-            />
-            <Toggle
-              id="system"
-              label="Other official updates"
-              description="New notifications, exam dates, corrigenda"
-              checked={prefs?.system ?? false}
-              disabled={!prefs || savingKey === "system"}
-              onChange={(v) => updatePref("system", v)}
-            />
-            <Toggle
-              id="eligible"
-              label="Exams that match my profile"
-              description="Alert me when a new exam I'm potentially eligible for is announced, even if I haven't saved it. Off by default."
-              checked={prefs?.eligible_alerts ?? false}
-              disabled={!prefs || savingKey === "eligible_alerts"}
-              onChange={(v) => updatePref("eligible_alerts", v)}
-            />
+            {PREFERENCE_LABELS.map((item) => (
+              <Toggle
+                key={item.key}
+                id={item.key}
+                label={item.label}
+                description={item.description}
+                checked={prefs?.[item.key] ?? false}
+                disabled={!prefs || savingKey === item.key}
+                onChange={(v) => updatePref(item.key, v)}
+              />
+            ))}
             <Toggle
               id="sms"
               label="SMS alerts"

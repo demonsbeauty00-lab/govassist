@@ -70,7 +70,7 @@ export interface Database {
           preferred_categories: string[];
           onboarding_completed_at: string | null;
           saved_exam_slugs: string[];
-          notification_preferences: { deadline?: boolean; admit_card?: boolean; result?: boolean; system?: boolean; eligible_alerts?: boolean };
+          notification_preferences: { deadline?: boolean; admit_card?: boolean; result?: boolean; system?: boolean; eligible_alerts?: boolean; new_notification?: boolean; exam_date?: boolean; answer_key?: boolean; eligibility?: boolean; application_requests?: boolean; channel_email?: boolean };
           updated_at: string;
         };
         Insert: Partial<Database["public"]["Tables"]["profiles"]["Row"]> & { user_id: string; full_name: string; dob: string; gender: string; state: string; category: string };
@@ -218,6 +218,7 @@ export interface Database {
           last_success_at: string | null;
           last_error: string | null;
           needs_parser_maintenance: boolean;
+          consecutive_failures: number;
           parser_version: string;
           last_content_hash: string | null;
           created_at: string;
@@ -279,6 +280,67 @@ export interface Database {
         };
         Insert: Partial<Database["public"]["Tables"]["source_audit_log"]["Row"]> & { event_type: string };
         Update: Partial<Database["public"]["Tables"]["source_audit_log"]["Row"]>;
+      };
+      admin_audit_log: {
+        Row: {
+          id: string;
+          admin_id: string | null;
+          action: "source_recheck" | "source_enabled" | "source_disabled" | "source_maintenance_cleared" | "update_publish_retried" | "deliveries_requeued";
+          target_type: "notification_source" | "detected_update" | "notification_delivery";
+          target_id: string | null;
+          outcome: "success" | "failed" | "refused";
+          details: Record<string, unknown>;
+          created_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["admin_audit_log"]["Row"]> & { action: string; target_type: string; outcome: string };
+        Update: Partial<Database["public"]["Tables"]["admin_audit_log"]["Row"]>;
+      };
+      automation_job_runs: {
+        Row: {
+          id: string;
+          job: "check_sources" | "check_pyq_sources";
+          started_at: string;
+          finished_at: string | null;
+          ok: boolean | null;
+          summary: Record<string, unknown>;
+        };
+        Insert: Partial<Database["public"]["Tables"]["automation_job_runs"]["Row"]> & { job: string };
+        Update: Partial<Database["public"]["Tables"]["automation_job_runs"]["Row"]>;
+      };
+      notification_job_log: {
+        Row: {
+          id: string;
+          created_at: string;
+          event_type: string | null;
+          drafts: number;
+          created: number;
+          duplicates: number;
+          disabled: number;
+          failed: number;
+        };
+        Insert: Partial<Database["public"]["Tables"]["notification_job_log"]["Row"]>;
+        Update: Partial<Database["public"]["Tables"]["notification_job_log"]["Row"]>;
+      };
+      notification_deliveries: {
+        Row: {
+          id: string;
+          notification_id: string;
+          user_id: string;
+          channel: "email" | "push";
+          status: "pending" | "sent" | "delivered" | "failed" | "skipped";
+          attempts: number;
+          next_attempt_at: string | null;
+          last_error: string | null;
+          provider_message_id: string | null;
+          sent_at: string | null;
+          delivered_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["notification_deliveries"]["Row"]> & {
+          notification_id: string; user_id: string; channel: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["notification_deliveries"]["Row"]>;
       };
       exam_stage_updates: {
         Row: {
@@ -399,6 +461,10 @@ export interface Database {
           source_url: string | null;
           published_on: string | null;
           stage_update_id: string | null;
+          // Phase 14 (0020)
+          event_type: string | null;
+          link_url: string | null;
+          read_at: string | null;
           created_at: string;
         };
         Insert: Partial<Database["public"]["Tables"]["notifications"]["Row"]> & { user_id: string; title: string; body: string; type: string };

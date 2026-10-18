@@ -1,5 +1,12 @@
 // ---------------------------------------------------------------------------
-// ⚠️ SIMULATED EXTRACTION — not a real OCR/vision call.
+// ⚠️ NO REAL OCR IS CONNECTED — this returns EMPTY fields, never invented values.
+//
+// Phase 16: this function used to return sample values (a made-up person's name,
+// date of birth and ID number) with rotating confidence. Because users confirm
+// extracted fields and those flow into the profile and the eligibility engine,
+// a made-up date of birth could change someone's real eligibility result. It now
+// returns the field labels with blank values and "low" confidence, so the user
+// types in what their document actually says (manual entry with a review step).
 //
 // This environment has no OCR/vision provider key and no network access to
 // verify one against, so wiring a real provider here isn't something I could
@@ -50,72 +57,19 @@ export interface ExtractedField {
 }
 
 /**
- * Returns plausible-looking sample values for each of a document type's
- * fields, with deliberately mixed confidence (never all "high") so the
- * review UI is meaningfully exercised rather than rubber-stamped. Every
- * field starts unconfirmed.
+ * Returns one blank, unconfirmed, low-confidence field per label in the document
+ * type's template. Nothing is read from the file. Swap this body for a real
+ * provider call (see the steps above) and nothing else needs to change.
  */
 export async function extractDocumentFields(documentType: DocumentType): Promise<ExtractedField[]> {
   const labels = FIELD_TEMPLATES[documentType];
   if (labels.length === 0) return []; // Photo / Signature / Other — nothing to read
 
-  // Simulates the latency of a real OCR call so the "processing" status in
-  // the UI is meaningful rather than instant.
-  await new Promise((resolve) => setTimeout(resolve, 400));
-
-  const sampleValues = SAMPLE_VALUES[documentType];
-
-  return labels.map((label, i) => ({
+  return labels.map((label) => ({
     label,
-    value: sampleValues[label] ?? "",
-    // Rotates through confidence levels rather than marking everything
-    // "high" — a real OCR pass never is, and the UI must be able to show
-    // (and the user must review) fields at every confidence level.
-    confidence: (["medium", "high", "low"] as const)[i % 3] ?? "medium",
+    value: "",
+    confidence: "low" as const,
     sourceDocumentType: documentType,
     confirmed: false,
   }));
 }
-
-const SAMPLE_VALUES: Record<DocumentType, Record<string, string>> = {
-  "10th Marksheet": {
-    Name: "AADITYA KUMAR SHARMA",
-    "Date of birth": "14-03-2001",
-    "Roll number": "2016UP0417293",
-    School: "Rashtriya Inter College",
-    "Passing year": "2016",
-    Marks: "82.4%",
-  },
-  "12th Marksheet": {
-    Name: "AADITYA KUMAR SHARMA",
-    "Passing year": "2018",
-    Stream: "Science",
-    Marks: "76.8%",
-  },
-  "Graduation Certificate": {
-    Name: "Aaditya Kumar Sharma",
-    Degree: "Bachelor of Arts",
-    Subject: "Political Science",
-    University: "Lucknow University",
-    "Passing year": "2023",
-  },
-  "Category Certificate": {
-    Name: "Aaditya Kumar Sharma",
-    Category: "OBC",
-    "Certificate number": "UP/OBC/2019/00417293",
-    "Issue date": "19-07-2019",
-  },
-  "Domicile Certificate": {
-    Name: "Aaditya Kumar Sharma",
-    State: "Uttar Pradesh",
-    "Issue date": "02-11-2020",
-  },
-  "Identity Document": {
-    Name: "AADITYA KUMAR SHARMA",
-    "Date of birth": "14-03-2001",
-    "ID number": "XXXX XXXX 4417",
-  },
-  Photo: {},
-  Signature: {},
-  Other: {},
-};

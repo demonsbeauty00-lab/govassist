@@ -7,12 +7,14 @@ import { profileToApplicant } from "@/lib/eligibility/from-profile";
 import {
   decideRecipients,
   isDiscoveryUpdate,
-  notificationTypeForUpdate,
   reasonLine,
   RecipientCandidate,
   RecipientReason,
   UpdateType,
 } from "@/lib/notifications/relevance";
+import { categoryForUpdateType, eventForUpdateType, UPDATES_LINK } from "@/lib/notifications/events";
+import { notify } from "@/lib/notifications/engine";
+import type { NotificationDraft } from "@/lib/notifications/engine/types";
 
 type ProfileRow = Database["public"]["Tables"]["profiles"]["Row"];
 
@@ -141,32 +143,31 @@ export async function notifyRelevantUsers(params: NotifyRelevantParams): Promise
   });
   if (recipients.length === 0) return { notified: 0, byReason };
 
-  const type = notificationTypeForUpdate(params.updateType);
-  const rows = recipients.map((r) => ({
-    user_id: r.userId,
+  // Phase 14: everything goes through the central engine (preferences,
+  // dedupe on (user_id, dedupe_key), channels, delivery tracking). The key is
+  // per detected update, so repeated polling never notifies twice, while a
+  // genuinely revised document is a NEW detected update and therefore a new event.
+  const event = eventForUpdateType(params.updateType);
+  const category = categoryForUpdateType(params.updateType);
+  const drafts: NotificationDraft[] = recipients.map((r) => ({
+    userId: r.userId,
+    event,
+    category,
     title: params.title,
     body: `${params.body} ${reasonLine(r.reason)}`,
-    type,
-    dedupe_key: `update:${params.updateId}`,
+    dedupeKey: `update:${params.updateId}`,
+    linkUrl: UPDATES_LINK,
     organization: params.organization ?? null,
-    source_url: params.sourceUrl ?? null,
-    published_on: params.publishedOn ?? null,
-    stage_update_id: params.stageUpdateId ?? null,
+    sourceUrl: params.sourceUrl ?? null,
+    publishedOn: params.publishedOn ?? null,
+    stageUpdateId: params.stageUpdateId ?? null,
   }));
 
-  // ignoreDuplicates + the (user_id, dedupe_key) unique index (0013): a
-  // repeat call inserts nothing, and `data` only contains rows that were
-  // actually created — so the counts below are real, not optimistic.
-  const { data: inserted, error } = await supabase
-    .from("notifications")
-    .upsert(rows, { onConflict: "user_id,dedupe_key", ignoreDuplicates: true })
-    .select("user_id");
-  if (error || !inserted) return { notified: 0, byReason };
-
+  const summary = await notify(drafts, supabase);
   const reasonByUser = new Map(recipients.map((r) => [r.userId, r.reason]));
-  for (const row of inserted) {
-    const reason = reasonByUser.get(row.user_id);
+  for (const userId of Array.from(summary.createdUserIds)) {
+    const reason = reasonByUser.get(userId);
     if (reason) byReason[reason]++;
   }
-  return { notified: inserted.length, byReason };
+  return { notified: summary.created, byReason };
 }

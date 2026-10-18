@@ -13,7 +13,9 @@ export interface EnrichedUpdate {
 }
 
 const GENERIC_TYPES = new Set(["new_notification", "other"]);
-const RANGE_TYPES = new Set(["exam_date", "objection_window"]);
+// Phase 16: application start/end notices also carry their date in the title; reading it explicitly
+// (instead of falling back to the publication date) is what lets the cycle patch stay honest.
+const RANGE_TYPES = new Set(["exam_date", "objection_window", "application_start_date", "application_end_date_change"]);
 
 function withField(fields: ExtractedNoticeField[], field: ExtractedNoticeField): ExtractedNoticeField[] {
   return [...fields.filter((f) => f.label !== field.label), field];

@@ -7,6 +7,7 @@ import { MISSING_SUPABASE_CONFIG_MESSAGE } from "@/lib/env";
 import { DOCUMENT_TYPES, DocumentType, PROFILE_FIELD_ENTRIES, ProfileEditableField, EDUCATION_FIELD_MAP, DOCUMENT_TYPE_SLUGS } from "@/lib/document-types";
 import { normalizeCategoryValue } from "@/lib/documents/normalize-category";
 import { extractDocumentFields, ExtractedField } from "@/lib/ocr/extract";
+import { bytesMatchMime, normalizeMime } from "@/lib/application-requests/file-validation";
 import { Database } from "@/lib/supabase/database.types";
 
 const BUCKET = "documents";
@@ -90,19 +91,23 @@ export async function uploadDocumentAction(formData: FormData): Promise<{ error?
     return { error: "Only PDF, JPG, and PNG files are supported." };
   }
 
-  // Replace, don't accumulate: if this type already has a file, delete it
-  // from Storage before uploading the new one — "do not store unnecessary
-  // copies" applies to the actual bytes, not just the database row.
+  // Phase 16: the declared MIME type is chosen by the browser; check the real leading bytes too,
+  // so a renamed or corrupt file is refused here instead of being stored and shown later.
+  const head = new Uint8Array(await file.slice(0, 16).arrayBuffer());
+  const declaredMime = normalizeMime(file.type);
+  if (!declaredMime || !bytesMatchMime(head, declaredMime)) {
+    return { error: "This file looks damaged or isn't really a PDF, JPG or PNG. Please choose the original file." };
+  }
+
+  // Replace, don't accumulate: the previous copy is removed AFTER the new one is safely recorded
+  // (Phase 16 — it used to be deleted first, so a failed upload left the document row pointing at
+  // a file that no longer existed).
   const { data: existing } = await supabase
     .from("documents")
     .select("id, storage_path")
     .eq("user_id", user.id)
     .eq("document_type", documentType)
     .maybeSingle();
-
-  if (existing?.storage_path) {
-    await supabase.storage.from(BUCKET).remove([existing.storage_path]);
-  }
 
   const safeName = file.name.replace(/[^a-zA-Z0-9.\-_]/g, "_");
   const storagePath = `${user.id}/${DOCUMENT_TYPE_SLUGS[documentType as DocumentType]}/${Date.now()}-${safeName}`;
@@ -137,6 +142,11 @@ export async function uploadDocumentAction(formData: FormData): Promise<{ error?
     // orphaned file with no corresponding, RLS-governed database row.
     await supabase.storage.from(BUCKET).remove([storagePath]);
     return { error: upsertError?.message ?? "Couldn't save the document record." };
+  }
+
+  // The new file and row are saved: now drop the previous copy ("do not store unnecessary copies").
+  if (existing?.storage_path && existing.storage_path !== storagePath) {
+    await supabase.storage.from(BUCKET).remove([existing.storage_path]);
   }
 
   // Run extraction. OCR can fail or be slow — a failure here still leaves a
@@ -210,8 +220,11 @@ export async function updateExtractedFieldAction(
 
   if (!doc) return { error: "Document not found." };
 
+  if (!newValue.trim()) return { error: "Enter a value, or leave the field unconfirmed." };
+  if (newValue.length > 200) return { error: "That value is too long." };
+
   const updatedFields = doc.extracted_fields.map((f: ExtractedField) =>
-    f.label === fieldLabel ? { ...f, value: newValue, confidence: "high" as const, confirmed: true } : f
+    f.label === fieldLabel ? { ...f, value: newValue.trim(), confidence: "high" as const, confirmed: true } : f
   );
 
   const { error } = await supabase
@@ -240,6 +253,11 @@ export async function confirmExtractedFieldAction(documentId: string, fieldLabel
     .maybeSingle();
 
   if (!doc) return { error: "Document not found." };
+
+  const target = doc.extracted_fields.find((f: ExtractedField) => f.label === fieldLabel);
+  if (!target) return { error: "Field not found." };
+  // Phase 16: a blank value cannot be "confirmed" — the user must type what the document says.
+  if (!target.value.trim()) return { error: `Enter the ${fieldLabel.toLowerCase()} from your document first.` };
 
   const updatedFields = doc.extracted_fields.map((f: ExtractedField) => (f.label === fieldLabel ? { ...f, confirmed: true } : f));
 
@@ -272,7 +290,7 @@ export async function confirmDocumentAction(documentId: string): Promise<{ error
 
   if (!doc) return { error: "Document not found." };
 
-  const unconfirmed = doc.extracted_fields.filter((f: ExtractedField) => !f.confirmed);
+  const unconfirmed = doc.extracted_fields.filter((f: ExtractedField) => !f.confirmed || !f.value.trim());
   if (unconfirmed.length > 0) {
     return { error: `Review the remaining field${unconfirmed.length > 1 ? "s" : ""} before confirming: ${unconfirmed.map((f: ExtractedField) => f.label).join(", ")}.` };
   }
